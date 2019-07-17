@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "subpar",
+    "subpar_derive",
+]

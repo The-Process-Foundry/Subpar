@@ -1,0 +1,12 @@
+[package]
+name = "subpar"
+version = "0.1.0"
+authors = ["Dave Fogelson <dfogelson@fishheadlabs.com>"]
+license = "MIT"
+edition = "2018"
+include = ["Cargo.toml", "src/*.rs", "crates-io.md", "README.md", "LICENSE-MIT"]
+description = "A set of traits and derives for (de)serializing excel spreadsheets using calamine"
+
+
+[dependencies]
+subpar_derive = { version = "0.1.0", path = "../subpar_derive" }

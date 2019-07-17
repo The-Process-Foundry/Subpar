@@ -1,0 +1,20 @@
+[package]
+name = "subpar_derive"
+version = "0.1.0"
+authors = ["Dave Fogelson <dfogelson@fishheadlabs.com>"]
+edition = "2018"
+include = ["Cargo.toml", "src/*.rs", "crates-io.md", "README.md", "LICENSE-MIT"]
+
+[features]
+default = []
+
+
+[lib]
+name = "subpar_derive"
+proc-macro = true
+
+[dependencies]
+chrono = "0.4.7"
+calamine = "0.15.5"
+syn = "0.15.39"
+quote = "0.6.13"
