@@ -9,4 +9,6 @@ description = "A set of traits and derives for (de)serializing excel spreadsheet
 
 
 [dependencies]
-subpar_derive = { version = "0.1.0", path = "../subpar_derive" }
+subpar_derive = { path = "../subpar_derive" }
+chrono = "0.4.7"
+calamine = "0.15.5"

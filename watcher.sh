@@ -5,8 +5,8 @@ export RUST_BACKTRACE=1;
 
 
 function rebuild_invoicer {
-  echo "\n\nBuilding and running the invoicer"
-  cargo test
+  echo "\n\n\n\n\n\n\t\t<-------------------------->\n\nBuilding and running the invoicer\n"
+  cargo test -- --nocapture
 }
 
 function init {
@@ -35,7 +35,7 @@ rebuild_invoicer
 while true; do
   command -v inotifywait > /dev/null 2>&1 || $(echo -e "InotifyWait not installed" && exit 1)
   echo -e $(pwd)
-  EVENT=$(inotifywait -r -e modify ./watcher.sh ./Cargo.toml ./subpar/* ./subpar_test/* ./subpar_derive/*)
+  EVENT=$(inotifywait -r -e modify ./watcher.sh ./Cargo.toml ./subpar/* ./subpar_derive/*)
   FILE_PATH=${EVENT/${modify}/}
   # echo -e "\nReceived event on file: '${FILE_PATH}'"
 
