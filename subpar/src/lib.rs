@@ -27,7 +27,8 @@ pub enum ExcelObject {
 
 /// Convert a row from a given table into the given struct
 pub trait FromExcel {
-  fn from_excel(&self, from_obj: ExcelObject) -> Self;
+  fn from_excel(from_obj: ExcelObject) -> Self;
+  fn get_sheet_name() -> String;
 }
 
 pub fn open_workbook(file_path: ExcelObject) -> Result<ExcelObject, SubparError> {
@@ -44,12 +45,45 @@ pub fn open_workbook(file_path: ExcelObject) -> Result<ExcelObject, SubparError>
   }
 }
 
+impl<T> FromExcel for Vec<T>
+where
+  T: FromExcel,
+{
+  fn from_excel(from_obj: ExcelObject) -> Vec<T> {
+    println!("In vec::from_excel");
+    match from_obj {
+      ExcelObject::FilePath(_) => match open_workbook(from_obj) {
+        Ok(wb) => Self::from_excel(wb),
+        Err(err) => panic!(format!("{:#?}", err)),
+      },
+      ExcelObject::Workbook(wb) => {
+        println! {"Got a workbook:\n{:#?}", wb};
+        vec![]
+      }
+      _ => panic!("Unimplemented branch of Vec<T> from_excel"),
+    }
+  }
+  fn get_sheet_name() -> String {
+    T::get_sheet_name()
+  }
+}
+
+impl FromExcel for String {
+  fn from_excel(_from_obj: ExcelObject) -> String {
+    panic!("String.from_excel is not implemented".to_string())
+  }
+
+  fn get_sheet_name() -> String {
+    panic!("Tried get_sheet_name for a String, which makes no sense")
+  }
+}
+
 #[cfg(test)]
 mod tests {
   // Note this useful idiom: importing names from outer (for mod tests) scope.
   use super::*;
 
-  #[derive(Debug, FromExcel)]
+  #[derive(Debug, Clone, FromExcel)]
   pub struct Payment {
     guid: String,
     // payer: String,
@@ -60,14 +94,16 @@ mod tests {
     // date_received: NaiveDateTime,
   }
 
+  #[derive(Debug, Clone, FromExcel)]
+  pub struct DB {
+    payments: Vec<Payment>,
+  }
+
   #[test]
   fn test_payment() {
-    let payment = Payment {
-      guid: "Hello".to_string(),
-    };
-    println!("The Payment is: {:#?}", payment);
-    match open_workbook(ExcelObject::FilePath("A Path to Excel".to_string())) {
-      Ok(wb) => println!("And From is: {:#?}", payment.from_excel(wb.clone())),
+    let db_path = ExcelObject::FilePath("./tests/Data/test_db.xlsx".to_string());
+    match open_workbook(db_path) {
+      Ok(wb) => println!("And From is:\n{:#?}", DB::from_excel(wb.clone())),
       Err(_err) => panic!(),
     }
   }
