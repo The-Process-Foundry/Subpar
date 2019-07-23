@@ -16,66 +16,80 @@ pub enum SubparError {
 /// Wrapper for the various types of Excel Resources
 ///
 /// This allows us to generically iterate through the conversions
-#[derive(Debug, Clone)]
 pub enum ExcelObject {
   Cell,
   Sheet,
   Row,
-  Workbook(String),
   FilePath(String),
+  Workbook(calamine::Xlsx<std::io::BufReader<std::fs::File>>),
 }
 
-/// Convert a row from a given table into the given struct
-pub trait FromExcel {
-  fn from_excel(from_obj: ExcelObject) -> Self;
-  fn get_sheet_name() -> String;
-}
-
-pub fn open_workbook(file_path: ExcelObject) -> Result<ExcelObject, SubparError> {
-  match file_path {
-    ExcelObject::FilePath(path) => {
-      // let mut xls = calamine::open_workbook(path);
-      let msg = format!("Opened the workbook at '{:#?}'", path);
-      Ok(ExcelObject::Workbook(msg.to_owned()))
-    }
-    _ => Err(SubparError::InvalidExcelObject(format!(
-      "open_workbook expects a file path but received {:#?}",
-      file_path
+pub fn open_workbook(excel_object: ExcelObject) -> Result<ExcelObject, SubparError> {
+  match excel_object {
+    ExcelObject::FilePath(path) => match calamine::open_workbook(path) {
+      Ok(wb) => Ok(ExcelObject::Workbook(wb)),
+      Err(err) => Err(SubparError::InvalidPath(
+        format!("There was a probjelm opening the workbook: {:#?}", err).to_string(),
+      )),
+    },
+    _ => Err(SubparError::UnexpectedError(format!(
+      "open_workbook can only be called with FilePath or Workbook",
     ))),
   }
 }
 
-impl<T> FromExcel for Vec<T>
-where
-  T: FromExcel,
-{
-  fn from_excel(from_obj: ExcelObject) -> Vec<T> {
-    println!("In vec::from_excel");
-    match from_obj {
-      ExcelObject::FilePath(_) => match open_workbook(from_obj) {
-        Ok(wb) => Self::from_excel(wb),
-        Err(err) => panic!(format!("{:#?}", err)),
-      },
-      ExcelObject::Workbook(wb) => {
-        println! {"Got a workbook:\n{:#?}", wb};
-        vec![]
-      }
-      _ => panic!("Unimplemented branch of Vec<T> from_excel"),
-    }
-  }
-  fn get_sheet_name() -> String {
-    T::get_sheet_name()
-  }
+/// Convert a row from a given table into the given struct
+pub trait FromExcel {
+  type T;
+
+  fn from_excel(from_obj: ExcelObject) -> Result<Self::T, SubparError>;
+  fn get_object_name() -> String;
 }
 
+// impl<T> FromExcel for Vec<T>
+// where
+//   T: FromExcel,
+// {
+//   fn from_excel(excel_object: ExcelObject) -> Vec<T> {
+//     println!("In vec::from_excel");
+//     let wb = match excel_object {
+//       ExcelObject::FilePath(_) => match open_workbook(excel_object) {
+//         Ok(wb) => wb,
+//         Err(err) => panic!(format!("{:#?}", err)),
+//       },
+//       ExcelObject::Workbook(wb) => wb,
+//       _ => panic!("Unimplemented branch of Vec<T> from_excel"),
+//     };
+
+//     vec![]
+//   }
+
+//   fn get_sheet_name() -> String {
+//     T::get_sheet_name()
+//   }
+// }
+
 impl FromExcel for String {
-  fn from_excel(_from_obj: ExcelObject) -> String {
+  type T = String;
+
+  fn from_excel(_excel_object: ExcelObject) -> Result<String, SubparError> {
     panic!("String.from_excel is not implemented".to_string())
   }
 
-  fn get_sheet_name() -> String {
+  fn get_object_name() -> String {
     panic!("Tried get_sheet_name for a String, which makes no sense")
   }
+}
+
+#[derive(Debug, Clone)]
+pub struct Payment {
+  guid: String,
+  // payer: String,
+  // payee: String,
+  // method: String,
+  // amount: f64,
+  // comment: Option<String>,
+  // date_received: NaiveDateTime,
 }
 
 #[cfg(test)]
@@ -83,7 +97,7 @@ mod tests {
   // Note this useful idiom: importing names from outer (for mod tests) scope.
   use super::*;
 
-  #[derive(Debug, Clone, FromExcel)]
+  #[derive(Debug, Clone)]
   pub struct Payment {
     guid: String,
     // payer: String,
@@ -94,18 +108,40 @@ mod tests {
     // date_received: NaiveDateTime,
   }
 
-  #[derive(Debug, Clone, FromExcel)]
+  #[derive(Debug, Clone)]
   pub struct DB {
     payments: Vec<Payment>,
   }
 
+  impl FromExcel for DB {
+    type T = DB;
+
+    fn from_excel(excel_object: ExcelObject) -> Result<DB, SubparError> {
+      let _wb = match excel_object {
+        ExcelObject::FilePath(_) => match open_workbook(excel_object) {
+          Ok(ExcelObject::Workbook(wb)) => wb,
+          Ok(_) => panic!("Impossible - got an OK/non Workbook object from Subpar::open_workbook"),
+          Err(err) => panic!(format!("Error opening the workbook: {:#?}", err)),
+        },
+        ExcelObject::Workbook(wb) => wb,
+        _ => panic!("This cannot create a workbook. Fix the branch or the code"),
+      };
+      Ok(DB {
+        payments: Vec::default(),
+      })
+    }
+
+    fn get_object_name() -> String {
+      "DB".to_string()
+    }
+  }
+
   #[test]
   fn test_payment() {
-    let db_path = ExcelObject::FilePath("./tests/Data/test_db.xlsx".to_string());
-    match open_workbook(db_path) {
-      Ok(wb) => println!("And From is:\n{:#?}", DB::from_excel(wb.clone())),
-      Err(_err) => panic!(),
-    }
+    let db = DB::from_excel(ExcelObject::FilePath(
+      "../subpar_test/data/test_db.xlsx".to_string(),
+    ));
+    println!("db:\n{:#?}", db);
   }
 }
 
