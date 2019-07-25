@@ -35,6 +35,8 @@ pub enum ExcelObject {
 
 pub fn open_workbook(excel_object: ExcelObject) -> Result<ExcelObject, SubparError> {
   match excel_object {
+    // For ease of use, this lets us ignore the fact it's already been opened
+    ExcelObject::Workbook(wb) => Ok(ExcelObject::Workbook(wb)),
     ExcelObject::FilePath(path) => match calamine::open_workbook(path) {
       Ok(wb) => Ok(ExcelObject::Workbook(wb)),
       Err(err) => Err(SubparError::InvalidPath(
@@ -51,7 +53,7 @@ pub fn get_sheet(
   excel_object: ExcelObject,
   sheet_name: String,
 ) -> Result<ExcelObject, SubparError> {
-  match excel_object {
+  match open_workbook(excel_object).expect("Could not open the workbook when getting sheet") {
     ExcelObject::Workbook(mut wb) => match wb.worksheet_range(&sheet_name[..]) {
       Some(Ok(range)) => {
         let (height, width) = range.get_size();
@@ -71,6 +73,17 @@ pub fn get_sheet(
   }
 }
 
+fn to_row(raw: &[calamine::DataType], headers: &HashMap<String, usize>) -> ExcelObject {
+  let mut row_data: HashMap<String, calamine::DataType> = HashMap::new();
+  for (key, i) in headers.iter() {
+    match row_data.insert(key.clone(), raw[*i].clone()) {
+      None => (),
+      Some(_) => panic!("Managed a duplicate entry in to_row. Should be impossible"),
+    }
+  }
+  ExcelObject::Row(row_data)
+}
+
 pub fn get_cell(excel_object: ExcelObject, cell_name: String) -> Result<ExcelObject, SubparError> {
   match excel_object {
     ExcelObject::Row(row) => match row.get(&cell_name.to_ascii_lowercase()) {
@@ -87,39 +100,52 @@ pub fn get_cell(excel_object: ExcelObject, cell_name: String) -> Result<ExcelObj
 }
 
 /// Convert a row from a given table into the given struct
-pub trait FromExcel {
-  type T;
-
-  fn from_excel(from_obj: ExcelObject) -> Result<Self::T, SubparError>;
+pub trait FromExcel<SubClass = Self> {
+  fn from_excel(from_obj: ExcelObject) -> Result<SubClass, SubparError>;
   fn get_object_name() -> String;
 }
 
-// impl<T> FromExcel for Vec<T>
-// where
-//   T: FromExcel,
-// {
-//   fn from_excel(excel_object: ExcelObject) -> Vec<T> {
-//     println!("In vec::from_excel");
-//     let wb = match excel_object {
-//       ExcelObject::FilePath(_) => match open_workbook(excel_object) {
-//         Ok(wb) => wb,
-//         Err(err) => panic!(format!("{:#?}", err)),
-//       },
-//       ExcelObject::Workbook(wb) => wb,
-//       _ => panic!("Unimplemented branch of Vec<T> from_excel"),
-//     };
+impl<U> FromExcel for Vec<U>
+where
+  U: FromExcel,
+{
+  fn from_excel(excel_object: ExcelObject) -> Result<Vec<U>, SubparError> {
+    let sheet_name = U::get_object_name();
+    println!("In vec::<{}>::from_excel", sheet_name);
 
-//     vec![]
-//   }
+    match get_sheet(excel_object, sheet_name).expect("Failed to get the sheet") {
+      ExcelObject::Sheet(sheet) => {
+        let mut rows = sheet.rows();
+        let mut lookup: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        if let Some(headers) = rows.next() {
+          for (i, cell) in headers.iter().enumerate() {
+            match cell {
+              calamine::DataType::String(value) => {
+                lookup.insert(value.to_lowercase().trim().to_string(), i);
+              }
+              calamine::DataType::Empty => (),
+              _ => println!("Cell '{:?}' is not a string", cell),
+            }
+          }
+        }
 
-//   fn get_sheet_name() -> String {
-//     T::get_sheet_name()
-//   }
-// }
+        let mut result: Vec<U> = Vec::new();
+        for row in rows {
+          let value = U::from_excel(to_row(row, &lookup)).expect("Error parsing row");
+          result.push(value);
+        }
+        Ok(result)
+      }
+      _ => panic!("We expected an excel sheet here"),
+    }
+  }
+
+  fn get_object_name() -> String {
+    U::get_object_name()
+  }
+}
 
 impl FromExcel for String {
-  type T = String;
-
   fn from_excel(excel_object: ExcelObject) -> Result<String, SubparError> {
     match excel_object {
       ExcelObject::Cell(cell) => match cell {
@@ -140,17 +166,6 @@ impl FromExcel for String {
   }
 }
 
-fn to_row(raw: &[calamine::DataType], headers: &HashMap<String, usize>) -> ExcelObject {
-  let mut row_data: HashMap<String, calamine::DataType> = HashMap::new();
-  for (key, i) in headers.iter() {
-    match row_data.insert(key.clone(), raw[*i].clone()) {
-      None => (),
-      Some(_) => panic!("Managed a duplicate entry in to_row. Should be impossible"),
-    }
-  }
-  ExcelObject::Row(row_data)
-}
-
 #[cfg(test)]
 mod tests {
   // Note this useful idiom: importing names from outer (for mod tests) scope.
@@ -159,7 +174,7 @@ mod tests {
   #[derive(Debug, Clone)]
   pub struct Payment {
     guid: String,
-    // payer: String,
+    payer: String,
     // payee: String,
     // method: String,
     // amount: f64,
@@ -167,57 +182,100 @@ mod tests {
     // date_received: NaiveDateTime,
   }
 
+  impl FromExcel for Payment {
+    fn from_excel(excel_object: ExcelObject) -> Result<Self, SubparError> {
+      let row = match excel_object {
+        ExcelObject::Row(row) => row,
+        _ => panic!("Payment did not receive a row"),
+      };
+      let guid = String::from_excel(
+        get_cell(ExcelObject::Row(row.clone()), "guid".to_string())
+          .expect("Could not find guid column for Payment"),
+      )
+      .expect("Error converting Payment.guid to a string");
+      let payer = String::from_excel(
+        get_cell(ExcelObject::Row(row.clone()), "payer".to_string())
+          .expect("Could not find payer column for Payment"),
+      )
+      .expect("Error converting Payment.guid to a string");
+      Ok(Payment {
+        guid: guid,
+        payer: payer,
+      })
+    }
+
+    fn get_object_name() -> String {
+      "Payment".to_string()
+    }
+  }
+
+  #[derive(Debug, Clone)]
+  pub struct Submission {
+    guid: String,
+    submitting_org: String,
+    // payee: String,
+    // method: String,
+    // amount: f64,
+    // comment: Option<String>,
+    // date_received: NaiveDateTime,
+  }
+
+  impl FromExcel for Submission {
+    fn from_excel(excel_object: ExcelObject) -> Result<Self, SubparError> {
+      let row = match excel_object {
+        ExcelObject::Row(row) => row,
+        _ => panic!("Submission did not receive a row"),
+      };
+      let guid = String::from_excel(
+        get_cell(ExcelObject::Row(row.clone()), "guid".to_string())
+          .expect("Could not find guid column for Submission"),
+      )
+      .expect("Error converting Submission.guid to a string");
+      let submitting_org = String::from_excel(
+        get_cell(ExcelObject::Row(row.clone()), "submitting_org".to_string())
+          .expect("Could not find submitting_org column for Submission"),
+      )
+      .expect("Error converting Submission.submitting_org to a string");
+      Ok(Submission {
+        guid: guid,
+        submitting_org: submitting_org,
+      })
+    }
+
+    fn get_object_name() -> String {
+      "Submission".to_string()
+    }
+  }
+
   #[derive(Debug, Clone)]
   pub struct DB {
     payments: Vec<Payment>,
+    submissions: Vec<Submission>,
   }
 
   impl FromExcel for DB {
-    type T = DB;
-
     fn from_excel(excel_object: ExcelObject) -> Result<DB, SubparError> {
-      let wb = match excel_object {
-        ExcelObject::FilePath(_) => match open_workbook(excel_object) {
-          Ok(ExcelObject::Workbook(wb)) => ExcelObject::Workbook(wb),
-          Ok(_) => panic!("Impossible - got an OK/non Workbook object from Subpar::open_workbook"),
-          Err(err) => panic!(format!("Error opening the workbook: {:#?}", err)),
-        },
-        ExcelObject::Workbook(_) => excel_object,
-        _ => panic!("This cannot create a workbook. Fix the branch or the code"),
+      let path = match excel_object {
+        ExcelObject::FilePath(path) => path,
+        _ => panic!("Error: Received something other than a file path for DB"),
       };
 
-      // Payments is vec: takes range/sheet
-      let payments =
-        // if vec, get the sheet, loop row by row
-        match get_sheet(wb, "Payment".to_string()).expect("Failed to get the sheet") {
-          ExcelObject::Sheet(sheet) => {
-            let mut rows = sheet.rows();
-            let mut lookup: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-            if let Some(headers) = rows.next() {
-                for (i, cell) in headers.iter().enumerate() {
-                    match cell {
-                        calamine::DataType::String(value) => {
-                            lookup.insert(value.to_lowercase().trim().to_string(), i);
-                        }
-                        calamine::DataType::Empty => (),
-                        _ => println!("Cell '{:?}' is not a string", cell),
-                    }
-                }
-            }
+      // Ugly, but we can only use the workbook once per sheet since it cannot be cloned
+      let payments = match open_workbook(ExcelObject::FilePath(path.clone())) {
+        Ok(wb) => Vec::<Payment>::from_excel(wb).expect("Couldn't make the vector of payments"),
+        Err(_) => panic!("Could not open the workbook for Payments"),
+      };
+      let submissions = match open_workbook(ExcelObject::FilePath(path.clone())) {
+        Ok(wb) => {
+          Vec::<Submission>::from_excel(wb).expect("Couldn't make the vector of submissions")
+        }
+        Err(_) => panic!("Could not open the workbook for Submission"),
+      };
 
-            let mut result: Vec<Payment> = Vec::new();
-            for row in rows {
-              let excel_row = to_row(row, &lookup);
-
-              let guid = String::from_excel(get_cell(excel_row, "guid".to_string()).expect("Could not find guid column for Payment")).expect("Error converting Payment.guid to a string");
-              result.push(Payment{guid: guid});
-            }
-            result
-          },
-          _ => panic!("We expected an excel sheet here")
-        };
-
-      Ok(DB { payments: payments })
+      Ok(DB {
+        payments: payments,
+        submissions: submissions,
+      })
     }
 
     fn get_object_name() -> String {
@@ -233,3 +291,31 @@ mod tests {
     println!("db:\n{:#?}", db);
   }
 }
+
+// match {
+//   ExcelObject::Sheet(sheet) => {
+//     let mut rows = sheet.rows();
+//     let mut lookup: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+//     if let Some(headers) = rows.next() {
+//         for (i, cell) in headers.iter().enumerate() {
+//             match cell {
+//                 calamine::DataType::String(value) => {
+//                     lookup.insert(value.to_lowercase().trim().to_string(), i);
+//                 }
+//                 calamine::DataType::Empty => (),
+//                 _ => println!("Cell '{:?}' is not a string", cell),
+//             }
+//         }
+//     }
+
+//     let mut result: Vec<Payment> = Vec::new();
+//     for row in rows {
+//       let excel_row = to_row(row, &lookup);
+
+//       let guid = String::from_excel(get_cell(excel_row, "guid".to_string()).expect("Could not find guid column for Payment")).expect("Error converting Payment.guid to a string");
+//       result.push(Payment{guid: guid});
+//     }
+//     result
+//   },
+//   _ => panic!("We expected an excel sheet here")
+// };
