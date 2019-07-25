@@ -1,5 +1,6 @@
-// use calamine::{DataType, Xlsx};
+use calamine::Reader;
 // use chrono::{NaiveDateTime, TimeZone, Utc};
+use std::collections::HashMap;
 
 #[doc(hidden)]
 pub use subpar_derive::FromExcel;
@@ -7,22 +8,30 @@ pub use subpar_derive::FromExcel;
 /// The full set of exceptions that can be raised at any step in this process
 #[derive(Debug, Clone)]
 pub enum SubparError {
+  InvalidCellType(String),
   InvalidExcelObject(String),
   InvalidPath(String),
   FileReadOnly(String),
+  UnknownColumn(String),
   UnexpectedError(String),
+  UnimplementedError(String),
 }
 
 /// Wrapper for the various types of Excel Resources
 ///
 /// This allows us to generically iterate through the conversions
 pub enum ExcelObject {
-  Cell,
-  Sheet,
-  Row,
+  Cell(calamine::DataType),
+  Sheet(calamine::Range<calamine::DataType>),
+  Row(std::collections::HashMap<String, calamine::DataType>),
   FilePath(String),
   Workbook(calamine::Xlsx<std::io::BufReader<std::fs::File>>),
 }
+
+// TODO: Make a ifOk trait.
+// pub fn ifOk(value: Result<A, SubparError>, func: &dyn Fn(A) -> Result<B: SubparError>) -> Result<B, SubparError> {
+//   match value
+// }
 
 pub fn open_workbook(excel_object: ExcelObject) -> Result<ExcelObject, SubparError> {
   match excel_object {
@@ -35,6 +44,45 @@ pub fn open_workbook(excel_object: ExcelObject) -> Result<ExcelObject, SubparErr
     _ => Err(SubparError::UnexpectedError(format!(
       "open_workbook can only be called with FilePath or Workbook",
     ))),
+  }
+}
+
+pub fn get_sheet(
+  excel_object: ExcelObject,
+  sheet_name: String,
+) -> Result<ExcelObject, SubparError> {
+  match excel_object {
+    ExcelObject::Workbook(mut wb) => match wb.worksheet_range(&sheet_name[..]) {
+      Some(Ok(range)) => {
+        let (height, width) = range.get_size();
+        println!("Rows: {} x {} ", height, width);
+        Ok(ExcelObject::Sheet(range))
+      }
+      Some(Err(err)) => panic!(
+        "Got an unknown error retrieving the sheet {}:\n{:#?}",
+        sheet_name, err
+      ),
+      None => panic!(
+        "Get sheet returned None when trying to get sheet {}",
+        sheet_name
+      ),
+    },
+    _ => panic!("Expected a workbook to pull a sheet from. Fix the branch or the code"),
+  }
+}
+
+pub fn get_cell(excel_object: ExcelObject, cell_name: String) -> Result<ExcelObject, SubparError> {
+  match excel_object {
+    ExcelObject::Row(row) => match row.get(&cell_name.to_ascii_lowercase()) {
+      Some(value) => Ok(ExcelObject::Cell(value.clone())),
+      None => {
+        println!("\n\n!!!!\nFailed column lookup: {:#?}", row);
+        Err(SubparError::UnknownColumn(
+          String::from("Could not find column named '") + &cell_name + "'",
+        ))
+      }
+    },
+    _ => panic!("Expected a row to pull a cell from. Fix the branch or the code"),
   }
 }
 
@@ -72,8 +120,19 @@ pub trait FromExcel {
 impl FromExcel for String {
   type T = String;
 
-  fn from_excel(_excel_object: ExcelObject) -> Result<String, SubparError> {
-    panic!("String.from_excel is not implemented".to_string())
+  fn from_excel(excel_object: ExcelObject) -> Result<String, SubparError> {
+    match excel_object {
+      ExcelObject::Cell(cell) => match cell {
+        calamine::DataType::String(value) => Ok(value),
+        calamine::DataType::Float(value) => Ok(value.to_string()),
+        calamine::DataType::Int(value) => Ok(value.to_string()),
+        x => Err(SubparError::InvalidCellType(format!(
+          "Cannot turn {:?} into a String",
+          x
+        ))),
+      },
+      _ => panic!("Tried to parse a string from a non-cell ExcelObject"),
+    }
   }
 
   fn get_object_name() -> String {
@@ -81,15 +140,15 @@ impl FromExcel for String {
   }
 }
 
-#[derive(Debug, Clone)]
-pub struct Payment {
-  guid: String,
-  // payer: String,
-  // payee: String,
-  // method: String,
-  // amount: f64,
-  // comment: Option<String>,
-  // date_received: NaiveDateTime,
+fn to_row(raw: &[calamine::DataType], headers: &HashMap<String, usize>) -> ExcelObject {
+  let mut row_data: HashMap<String, calamine::DataType> = HashMap::new();
+  for (key, i) in headers.iter() {
+    match row_data.insert(key.clone(), raw[*i].clone()) {
+      None => (),
+      Some(_) => panic!("Managed a duplicate entry in to_row. Should be impossible"),
+    }
+  }
+  ExcelObject::Row(row_data)
 }
 
 #[cfg(test)]
@@ -117,18 +176,48 @@ mod tests {
     type T = DB;
 
     fn from_excel(excel_object: ExcelObject) -> Result<DB, SubparError> {
-      let _wb = match excel_object {
+      let wb = match excel_object {
         ExcelObject::FilePath(_) => match open_workbook(excel_object) {
-          Ok(ExcelObject::Workbook(wb)) => wb,
+          Ok(ExcelObject::Workbook(wb)) => ExcelObject::Workbook(wb),
           Ok(_) => panic!("Impossible - got an OK/non Workbook object from Subpar::open_workbook"),
           Err(err) => panic!(format!("Error opening the workbook: {:#?}", err)),
         },
-        ExcelObject::Workbook(wb) => wb,
+        ExcelObject::Workbook(_) => excel_object,
         _ => panic!("This cannot create a workbook. Fix the branch or the code"),
       };
-      Ok(DB {
-        payments: Vec::default(),
-      })
+
+      // Payments is vec: takes range/sheet
+      let payments =
+        // if vec, get the sheet, loop row by row
+        match get_sheet(wb, "Payment".to_string()).expect("Failed to get the sheet") {
+          ExcelObject::Sheet(sheet) => {
+            let mut rows = sheet.rows();
+            let mut lookup: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            if let Some(headers) = rows.next() {
+                for (i, cell) in headers.iter().enumerate() {
+                    match cell {
+                        calamine::DataType::String(value) => {
+                            lookup.insert(value.to_lowercase().trim().to_string(), i);
+                        }
+                        calamine::DataType::Empty => (),
+                        _ => println!("Cell '{:?}' is not a string", cell),
+                    }
+                }
+            }
+
+            let mut result: Vec<Payment> = Vec::new();
+            for row in rows {
+              let excel_row = to_row(row, &lookup);
+
+              let guid = String::from_excel(get_cell(excel_row, "guid".to_string()).expect("Could not find guid column for Payment")).expect("Error converting Payment.guid to a string");
+              result.push(Payment{guid: guid});
+            }
+            result
+          },
+          _ => panic!("We expected an excel sheet here")
+        };
+
+      Ok(DB { payments: payments })
     }
 
     fn get_object_name() -> String {
@@ -144,735 +233,3 @@ mod tests {
     println!("db:\n{:#?}", db);
   }
 }
-
-/*
-
-fn get_cell_value(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Result<DataType, String> {
-  // Find the position of the value of the row
-  match lookup.get(&name.to_ascii_lowercase()) {
-    Some(index) => return Ok(row[*index].clone()),
-    None => {
-      println!("\n\n!!!!\nFailed column lookup: {:#?}", lookup);
-      return Err(String::from("Could not find column named '") + name + "'");
-    }
-  };
-}
-
-
-impl FromExcel for NaiveDateTime {
-  fn from_excel(excel_date: f64) -> NaiveDateTime {
-  // let dt = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(61, 0), Utc);
-  // assert_eq!(Utc.timestamp(61, 0), dt);
-
-  // var basedate = new Date(1899, 11, 30, 0, 0, 0); // 2209161600000
-  // Ported from
-  // https://github.com/SheetJS/js-xlsx/blob/3438923e5138f10de0aa70b35a8f56eedcfc320d/bits/20_jsutils.js#L34-L45
-  let basedate = Utc.ymd(1899, 11, 30).and_hms(0, 0, 0).naive_utc();
-  // println!("The ExcelDate is {:?} and the BaseDate is: {:?}", excel_date, basedate);
-  // println!("The parsed date is {:?}", basedate + chrono::Duration::days(excel_date as i64 + 31));
-  basedate + chrono::Duration::days(excel_date as i64 + 31)
-
-  // var dnthresh = basedate.getTime() + (new Date().getTimezoneOffset() - basedate.getTimezoneOffset()) * 60000;
-  // function datenum(v/*:Date*/, date1904/*:?boolean*/)/*:number*/ {
-  //   var epoch = v.getTime();
-  //   if(date1904) epoch -= 1462*24*60*60*1000;
-  //   return (epoch - dnthresh) / (24 * 60 * 60 * 1000);
-  // }
-  // function numdate(v/*:number*/)/*:Date*/ {
-  //   var out = new Date();
-  //   out.setTime(v * 24 * 60 * 60 * 1000 + dnthresh);
-  // 	return out;
-  // }
-}
-
-pub fn cell_to_date(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> NaiveDateTime {
-  f64_to_date(cell_to_f64(lookup, row, name))
-}
-
-pub fn cell_to_opt_date(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<NaiveDateTime> {
-  match cell_to_opt_f64(lookup, row, name) {
-    Some(days) => Some(f64_to_date(days)),
-    None => None,
-  }
-}
-
-pub fn cell_to_string(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> String {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value,
-    Ok(DataType::Float(value)) => value.to_string(),
-    Ok(DataType::Int(value)) => value.to_string(),
-    Ok(x) => panic!(format!(
-      "\n!!! Cannot turn {:?} into a String for {}",
-      x, name
-    )),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_opt_string(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<String> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => Some(value),
-    Ok(DataType::Float(value)) => Some(value.to_string()),
-    Ok(DataType::Empty) => None,
-    Ok(x) => panic!(format!(
-      "\n!!! Cannot turn {:?} into a Option String for {}",
-      x, name
-    )),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-// pub fn cell_to_f32(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> f32 {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => value.parse::<f32>().unwrap(),
-//     Ok(DataType::Float(value)) => value as f32,
-//     Ok(DataType::Int(value)) => value as f32,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f32 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-// pub fn cell_to_opt_f32(
-//   lookup: &HashMap<String, usize>,
-//   row: &[DataType],
-//   name: &str,
-// ) -> Option<f32> {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => Some(value.parse::<f32>().unwrap()),
-//     Ok(DataType::Float(value)) => Some(value as f32),
-//     Ok(DataType::Int(value)) => Some(value as f32),
-//     Ok(DataType::Empty) => None,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f32 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-pub fn cell_to_f64(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> f64 {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value.parse::<f64>().unwrap(),
-    Ok(DataType::Float(value)) => value,
-    Ok(DataType::Int(value)) => value as f64,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f64 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_opt_f64(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<f64> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => Some(value.parse::<f64>().unwrap()),
-    Ok(DataType::Float(value)) => Some(value),
-    Ok(DataType::Int(value)) => Some(value as f64),
-    Ok(DataType::Empty) => None,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f64 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell into f64: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_i32(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> i32 {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value.parse::<i32>().unwrap(),
-    Ok(DataType::Float(value)) => value as i32,
-    Ok(DataType::Int(value)) => value as i32,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i32 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_opt_i32(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<i32> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => Some(value.parse::<i32>().unwrap()),
-    Ok(DataType::Float(value)) => Some(value as i32),
-    Ok(DataType::Int(value)) => Some(value as i32),
-    Ok(DataType::Empty) => None,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i32 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-// pub fn cell_to_i16(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> i16 {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => value.parse::<i16>().unwrap(),
-//     Ok(DataType::Float(value)) => value as i16,
-//     Ok(DataType::Int(value)) => value as i16,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i16 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-// pub fn cell_to_opt_i16(
-//   lookup: &HashMap<String, usize>,
-//   row: &[DataType],
-//   name: &str,
-// ) -> Option<i16> {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => Some(value.parse::<i16>().unwrap()),
-//     Ok(DataType::Float(value)) => Some(value as i16),
-//     Ok(DataType::Int(value)) => Some(value as i16),
-//     Ok(DataType::Empty) => None,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i16 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-pub fn cell_to_vec_string(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Vec<String> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value
-      .trim_matches(|c| c == '[' || c == ']')
-      .replace(" ", "")
-      .split(",")
-      .filter(|&x| x != "")
-      .map(|s| s.to_string())
-      .collect::<Vec<_>>(),
-    Ok(x) => panic!(format!(
-      "\n!!! Cannot turn {:?} into a Vec<String> for {}",
-      x, name
-    )),
-    Err(x) => panic!(format!(
-      "\n!!! ;;Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-fn get_cell_value(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Result<DataType, String> {
-  // Find the position of the value of the row
-  match lookup.get(&name.to_ascii_lowercase()) {
-    Some(index) => return Ok(row[*index].clone()),
-    None => {
-      println!("\n\n!!!!\nFailed column lookup: {:#?}", lookup);
-      return Err(String::from("Could not find column named '") + name + "'");
-    }
-  };
-}
-
-fn f64_to_date(excel_date: f64) -> NaiveDateTime {
-  // let dt = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(61, 0), Utc);
-  // assert_eq!(Utc.timestamp(61, 0), dt);
-
-  // var basedate = new Date(1899, 11, 30, 0, 0, 0); // 2209161600000
-  // Ported from
-  // https://github.com/SheetJS/js-xlsx/blob/3438923e5138f10de0aa70b35a8f56eedcfc320d/bits/20_jsutils.js#L34-L45
-  let basedate = Utc.ymd(1899, 11, 30).and_hms(0, 0, 0).naive_utc();
-  // println!("The ExcelDate is {:?} and the BaseDate is: {:?}", excel_date, basedate);
-  // println!("The parsed date is {:?}", basedate + chrono::Duration::days(excel_date as i64 + 31));
-  basedate + chrono::Duration::days(excel_date as i64 + 31)
-
-  // var dnthresh = basedate.getTime() + (new Date().getTimezoneOffset() - basedate.getTimezoneOffset()) * 60000;
-  // function datenum(v/*:Date*/, date1904/*:?boolean*/)/*:number*/ {
-  //   var epoch = v.getTime();
-  //   if(date1904) epoch -= 1462*24*60*60*1000;
-  //   return (epoch - dnthresh) / (24 * 60 * 60 * 1000);
-  // }
-  // function numdate(v/*:number*/)/*:Date*/ {
-  //   var out = new Date();
-  //   out.setTime(v * 24 * 60 * 60 * 1000 + dnthresh);
-  // 	return out;
-  // }
-}
-
-pub fn cell_to_date(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> NaiveDateTime {
-  f64_to_date(cell_to_f64(lookup, row, name))
-}
-
-pub fn cell_to_opt_date(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<NaiveDateTime> {
-  match cell_to_opt_f64(lookup, row, name) {
-    Some(days) => Some(f64_to_date(days)),
-    None => None,
-  }
-}
-
-pub fn cell_to_string(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> String {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value,
-    Ok(DataType::Float(value)) => value.to_string(),
-    Ok(DataType::Int(value)) => value.to_string(),
-    Ok(x) => panic!(format!(
-      "\n!!! Cannot turn {:?} into a String for {}",
-      x, name
-    )),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_opt_string(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<String> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => Some(value),
-    Ok(DataType::Float(value)) => Some(value.to_string()),
-    Ok(DataType::Empty) => None,
-    Ok(x) => panic!(format!(
-      "\n!!! Cannot turn {:?} into a Option String for {}",
-      x, name
-    )),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-// pub fn cell_to_f32(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> f32 {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => value.parse::<f32>().unwrap(),
-//     Ok(DataType::Float(value)) => value as f32,
-//     Ok(DataType::Int(value)) => value as f32,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f32 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-// pub fn cell_to_opt_f32(
-//   lookup: &HashMap<String, usize>,
-//   row: &[DataType],
-//   name: &str,
-// ) -> Option<f32> {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => Some(value.parse::<f32>().unwrap()),
-//     Ok(DataType::Float(value)) => Some(value as f32),
-//     Ok(DataType::Int(value)) => Some(value as f32),
-//     Ok(DataType::Empty) => None,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f32 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-pub fn cell_to_f64(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> f64 {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value.parse::<f64>().unwrap(),
-    Ok(DataType::Float(value)) => value,
-    Ok(DataType::Int(value)) => value as f64,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f64 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_opt_f64(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<f64> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => Some(value.parse::<f64>().unwrap()),
-    Ok(DataType::Float(value)) => Some(value),
-    Ok(DataType::Int(value)) => Some(value as f64),
-    Ok(DataType::Empty) => None,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f64 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell into f64: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_i32(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> i32 {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value.parse::<i32>().unwrap(),
-    Ok(DataType::Float(value)) => value as i32,
-    Ok(DataType::Int(value)) => value as i32,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i32 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_opt_i32(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<i32> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => Some(value.parse::<i32>().unwrap()),
-    Ok(DataType::Float(value)) => Some(value as i32),
-    Ok(DataType::Int(value)) => Some(value as i32),
-    Ok(DataType::Empty) => None,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i32 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-// pub fn cell_to_i16(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> i16 {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => value.parse::<i16>().unwrap(),
-//     Ok(DataType::Float(value)) => value as i16,
-//     Ok(DataType::Int(value)) => value as i16,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i16 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-// pub fn cell_to_opt_i16(
-//   lookup: &HashMap<String, usize>,
-//   row: &[DataType],
-//   name: &str,
-// ) -> Option<i16> {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => Some(value.parse::<i16>().unwrap()),
-//     Ok(DataType::Float(value)) => Some(value as i16),
-//     Ok(DataType::Int(value)) => Some(value as i16),
-//     Ok(DataType::Empty) => None,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i16 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-pub fn cell_to_vec_string(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Vec<String> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value
-      .trim_matches(|c| c == '[' || c == ']')
-      .replace(" ", "")
-      .split(",")
-      .filter(|&x| x != "")
-      .map(|s| s.to_string())
-      .collect::<Vec<_>>(),
-    Ok(x) => panic!(format!(
-      "\n!!! Cannot turn {:?} into a Vec<String> for {}",
-      x, name
-    )),
-    Err(x) => panic!(format!(
-      "\n!!! ;;Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-fn get_cell_value(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Result<DataType, String> {
-  // Find the position of the value of the row
-  match lookup.get(&name.to_ascii_lowercase()) {
-    Some(index) => return Ok(row[*index].clone()),
-    None => {
-      println!("\n\n!!!!\nFailed column lookup: {:#?}", lookup);
-      return Err(String::from("Could not find column named '") + name + "'");
-    }
-  };
-}
-
-fn f64_to_date(excel_date: f64) -> NaiveDateTime {
-  // let dt = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(61, 0), Utc);
-  // assert_eq!(Utc.timestamp(61, 0), dt);
-
-  // var basedate = new Date(1899, 11, 30, 0, 0, 0); // 2209161600000
-  // Ported from
-  // https://github.com/SheetJS/js-xlsx/blob/3438923e5138f10de0aa70b35a8f56eedcfc320d/bits/20_jsutils.js#L34-L45
-  let basedate = Utc.ymd(1899, 11, 30).and_hms(0, 0, 0).naive_utc();
-  // println!("The ExcelDate is {:?} and the BaseDate is: {:?}", excel_date, basedate);
-  // println!("The parsed date is {:?}", basedate + chrono::Duration::days(excel_date as i64 + 31));
-  basedate + chrono::Duration::days(excel_date as i64 + 31)
-
-  // var dnthresh = basedate.getTime() + (new Date().getTimezoneOffset() - basedate.getTimezoneOffset()) * 60000;
-  // function datenum(v/*:Date*/, date1904/*:?boolean*/)/*:number*/ {
-  //   var epoch = v.getTime();
-  //   if(date1904) epoch -= 1462*24*60*60*1000;
-  //   return (epoch - dnthresh) / (24 * 60 * 60 * 1000);
-  // }
-  // function numdate(v/*:number*/)/*:Date*/ {
-  //   var out = new Date();
-  //   out.setTime(v * 24 * 60 * 60 * 1000 + dnthresh);
-  // 	return out;
-  // }
-}
-
-pub fn cell_to_date(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> NaiveDateTime {
-  f64_to_date(cell_to_f64(lookup, row, name))
-}
-
-pub fn cell_to_opt_date(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<NaiveDateTime> {
-  match cell_to_opt_f64(lookup, row, name) {
-    Some(days) => Some(f64_to_date(days)),
-    None => None,
-  }
-}
-
-pub fn cell_to_string(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> String {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value,
-    Ok(DataType::Float(value)) => value.to_string(),
-    Ok(DataType::Int(value)) => value.to_string(),
-    Ok(x) => panic!(format!(
-      "\n!!! Cannot turn {:?} into a String for {}",
-      x, name
-    )),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_opt_string(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<String> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => Some(value),
-    Ok(DataType::Float(value)) => Some(value.to_string()),
-    Ok(DataType::Empty) => None,
-    Ok(x) => panic!(format!(
-      "\n!!! Cannot turn {:?} into a Option String for {}",
-      x, name
-    )),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-// pub fn cell_to_f32(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> f32 {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => value.parse::<f32>().unwrap(),
-//     Ok(DataType::Float(value)) => value as f32,
-//     Ok(DataType::Int(value)) => value as f32,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f32 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-// pub fn cell_to_opt_f32(
-//   lookup: &HashMap<String, usize>,
-//   row: &[DataType],
-//   name: &str,
-// ) -> Option<f32> {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => Some(value.parse::<f32>().unwrap()),
-//     Ok(DataType::Float(value)) => Some(value as f32),
-//     Ok(DataType::Int(value)) => Some(value as f32),
-//     Ok(DataType::Empty) => None,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f32 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-pub fn cell_to_f64(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> f64 {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value.parse::<f64>().unwrap(),
-    Ok(DataType::Float(value)) => value,
-    Ok(DataType::Int(value)) => value as f64,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f64 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_opt_f64(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<f64> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => Some(value.parse::<f64>().unwrap()),
-    Ok(DataType::Float(value)) => Some(value),
-    Ok(DataType::Int(value)) => Some(value as f64),
-    Ok(DataType::Empty) => None,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a f64 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell into f64: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_i32(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> i32 {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value.parse::<i32>().unwrap(),
-    Ok(DataType::Float(value)) => value as i32,
-    Ok(DataType::Int(value)) => value as i32,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i32 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-pub fn cell_to_opt_i32(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Option<i32> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => Some(value.parse::<i32>().unwrap()),
-    Ok(DataType::Float(value)) => Some(value as i32),
-    Ok(DataType::Int(value)) => Some(value as i32),
-    Ok(DataType::Empty) => None,
-    Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i32 for {}", x, name)),
-    Err(x) => panic!(format!(
-      "\n!!! Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-
-// pub fn cell_to_i16(lookup: &HashMap<String, usize>, row: &[DataType], name: &str) -> i16 {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => value.parse::<i16>().unwrap(),
-//     Ok(DataType::Float(value)) => value as i16,
-//     Ok(DataType::Int(value)) => value as i16,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i16 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-// pub fn cell_to_opt_i16(
-//   lookup: &HashMap<String, usize>,
-//   row: &[DataType],
-//   name: &str,
-// ) -> Option<i16> {
-//   match get_cell_value(lookup, row, name) {
-//     Ok(DataType::String(value)) => Some(value.parse::<i16>().unwrap()),
-//     Ok(DataType::Float(value)) => Some(value as i16),
-//     Ok(DataType::Int(value)) => Some(value as i16),
-//     Ok(DataType::Empty) => None,
-//     Ok(x) => panic!(format!("\n!!! Cannot turn {:?} into a i16 for {}", x, name)),
-//     Err(x) => panic!(format!(
-//       "\n!!! Received error converting cell: {:?} for {}",
-//       x, name
-//     )),
-//   }
-// }
-
-pub fn cell_to_vec_string(
-  lookup: &HashMap<String, usize>,
-  row: &[DataType],
-  name: &str,
-) -> Vec<String> {
-  match get_cell_value(lookup, row, name) {
-    Ok(DataType::String(value)) => value
-      .trim_matches(|c| c == '[' || c == ']')
-      .replace(" ", "")
-      .split(",")
-      .filter(|&x| x != "")
-      .map(|s| s.to_string())
-      .collect::<Vec<_>>(),
-    Ok(x) => panic!(format!(
-      "\n!!! Cannot turn {:?} into a Vec<String> for {}",
-      x, name
-    )),
-    Err(x) => panic!(format!(
-      "\n!!! ;;Received error converting cell: {:?} for {}",
-      x, name
-    )),
-  }
-}
-*/
