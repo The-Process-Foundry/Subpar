@@ -12,64 +12,116 @@ pub enum SubparError {
   InvalidExcelObject(String),
   InvalidPath(String),
   FileReadOnly(String),
+  NotFound(String),
   UnknownColumn(String),
   UnexpectedError(String),
   UnimplementedError(String),
 }
 
-/// Wrapper for the various types of Excel Resources
+/// Metadata around the workbook so we can implement a clone function for the excel object
+//  We can add caching and smarter lookups in the future. I find that a struct with guaranteed
+//  values is easier to use than an enum
+//  use in
+pub struct MetaWorkbook {
+  path: String,
+  // TODO: Can this really be cloned?
+  workbook: Option<calamine::Xlsx<std::io::BufReader<std::fs::File>>>,
+}
+
+impl MetaWorkbook {
+  pub fn new(path: String) -> Self {
+    MetaWorkbook {
+      path: path.clone(),
+      workbook: None,
+    }
+  }
+
+  fn open(&self) -> Result<Self, SubparError> {
+    match calamine::open_workbook(self.path.clone()) {
+      Ok(wb) => Ok(MetaWorkbook {
+        path: self.path.clone(),
+        workbook: Some(wb),
+      }),
+      Err(err) => Err(SubparError::InvalidPath(
+        format!("There was a probjelm opening the workbook: {:#?}", err).to_string(),
+      )),
+    }
+  }
+
+  fn get_sheet(
+    &self,
+    sheet_name: String,
+  ) -> Result<calamine::Range<calamine::DataType>, SubparError> {
+    // Always open this. Cloning and borrowing are painful to try and debug, so make it work
+    let wb = match self.open() {
+      Ok(opened) => match opened.workbook {
+        Some(inner) => Ok(inner),
+        None => panic!("Tried to open workbook but still received None after a success"),
+      },
+      Err(err) => Err(err),
+    };
+
+    match wb {
+      Err(err) => Err(err),
+      Ok(mut wb) => match wb.worksheet_range(&sheet_name[..]) {
+        Some(Ok(range)) => {
+          let (height, width) = range.get_size();
+          println!("Rows: {} x {} ", height, width);
+          Ok(range)
+        }
+        Some(Err(err)) => panic!(
+          "Got an unknown error retrieving the sheet {}:\n{:#?}",
+          sheet_name, err
+        ),
+        None => panic!(
+          "Get sheet returned None when trying to get sheet {}. Valid members are {:#?}",
+          sheet_name,
+          wb.sheet_names()
+        ),
+      },
+    }
+  }
+}
+
+impl Clone for MetaWorkbook {
+  fn clone(&self) -> Self {
+    let cloned = MetaWorkbook {
+      path: self.path.clone(),
+      workbook: None,
+    };
+    match &self.workbook {
+      None => cloned,
+      // Does this make sense? Multiple writers pointing to the same object can be quite ugly
+      // Possibility that we should panic if the state is not closed
+      Some(_) => match cloned.open() {
+        Ok(wb) => wb,
+        Err(err) => panic!("there was an issue cloning the workbook:\n{:#?}", err),
+      },
+    }
+  }
+}
+
+/// Wrappers for the various types of Excel Resources so we can pass them around more easily
 ///
 /// This allows us to generically iterate through the conversions
+#[derive(Clone)]
 pub enum ExcelObject {
   Cell(calamine::DataType),
   Sheet(calamine::Range<calamine::DataType>),
   Row(std::collections::HashMap<String, calamine::DataType>),
-  FilePath(String),
-  Workbook(calamine::Xlsx<std::io::BufReader<std::fs::File>>),
+  Workbook(MetaWorkbook),
 }
 
-// TODO: Make a ifOk trait.
-// pub fn ifOk(value: Result<A, SubparError>, func: &dyn Fn(A) -> Result<B: SubparError>) -> Result<B, SubparError> {
-//   match value
-// }
-
-pub fn open_workbook(excel_object: ExcelObject) -> Result<ExcelObject, SubparError> {
-  match excel_object {
-    // For ease of use, this lets us ignore the fact it's already been opened
-    ExcelObject::Workbook(wb) => Ok(ExcelObject::Workbook(wb)),
-    ExcelObject::FilePath(path) => match calamine::open_workbook(path) {
-      Ok(wb) => Ok(ExcelObject::Workbook(wb)),
-      Err(err) => Err(SubparError::InvalidPath(
-        format!("There was a probjelm opening the workbook: {:#?}", err).to_string(),
+impl ExcelObject {
+  fn get_sheet<'a>(&'a self, sheet_name: String) -> Result<Self, SubparError> {
+    match self {
+      ExcelObject::Workbook(wb) => Ok(ExcelObject::Sheet(
+        wb.get_sheet(sheet_name).expect("Could not get sheet"),
       )),
-    },
-    _ => Err(SubparError::UnexpectedError(format!(
-      "open_workbook can only be called with FilePath or Workbook",
-    ))),
-  }
-}
-
-pub fn get_sheet(
-  excel_object: ExcelObject,
-  sheet_name: String,
-) -> Result<ExcelObject, SubparError> {
-  match open_workbook(excel_object).expect("Could not open the workbook when getting sheet") {
-    ExcelObject::Workbook(mut wb) => match wb.worksheet_range(&sheet_name[..]) {
-      Some(Ok(range)) => {
-        let (height, width) = range.get_size();
-        println!("Rows: {} x {} ", height, width);
-        Ok(ExcelObject::Sheet(range))
-      }
-      Some(Err(err)) => panic!(
-        "Got an unknown error retrieving the sheet {}:\n{:#?}",
-        sheet_name, err
-      ),
-      None => panic!(
-        "Get sheet returned None when trying to get sheet {}",
-        sheet_name
-      ),
-    },
-    _ => panic!("Expected a workbook to pull a sheet from. Fix the branch or the code"),
+      _ => Err(SubparError::InvalidExcelObject(
+        "Can only call get_sheet on ExcelObject::Workbook Objects".to_string(),
+      )),
+    }
   }
 }
 
@@ -113,7 +165,7 @@ where
     let sheet_name = U::get_object_name();
     println!("In vec::<{}>::from_excel", sheet_name);
 
-    match get_sheet(excel_object, sheet_name).expect("Failed to get the sheet") {
+    match excel_object {
       ExcelObject::Sheet(sheet) => {
         let mut rows = sheet.rows();
         let mut lookup: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -183,6 +235,7 @@ mod tests {
   }
 
   impl FromExcel for Payment {
+    // Expect a sheet
     fn from_excel(excel_object: ExcelObject) -> Result<Self, SubparError> {
       let row = match excel_object {
         ExcelObject::Row(row) => row,
@@ -255,19 +308,16 @@ mod tests {
 
   impl FromExcel for DB {
     fn from_excel(excel_object: ExcelObject) -> Result<DB, SubparError> {
-      let path = match excel_object {
-        ExcelObject::FilePath(path) => path,
-        _ => panic!("Error: Received something other than a file path for DB"),
+      // Since this is a Vec type, we open the sheet
+      let payments = match excel_object.get_sheet("Payment".to_string()) {
+        Ok(sheet) => {
+          Vec::<Payment>::from_excel(sheet).expect("Couldn't make the vector of Payment")
+        }
+        Err(_) => panic!("Could not open the workbook for Payment"),
       };
-
-      // Ugly, but we can only use the workbook once per sheet since it cannot be cloned
-      let payments = match open_workbook(ExcelObject::FilePath(path.clone())) {
-        Ok(wb) => Vec::<Payment>::from_excel(wb).expect("Couldn't make the vector of payments"),
-        Err(_) => panic!("Could not open the workbook for Payments"),
-      };
-      let submissions = match open_workbook(ExcelObject::FilePath(path.clone())) {
-        Ok(wb) => {
-          Vec::<Submission>::from_excel(wb).expect("Couldn't make the vector of submissions")
+      let submissions = match excel_object.get_sheet("Submission".to_string()) {
+        Ok(sheet) => {
+          Vec::<Submission>::from_excel(sheet).expect("Couldn't make the vector of Submission")
         }
         Err(_) => panic!("Could not open the workbook for Submission"),
       };
@@ -285,9 +335,8 @@ mod tests {
 
   #[test]
   fn test_payment() {
-    let db = DB::from_excel(ExcelObject::FilePath(
-      "../subpar_test/data/test_db.xlsx".to_string(),
-    ));
+    let wb = MetaWorkbook::new("../subpar_test/data/test_db.xlsx".to_string());
+    let db = DB::from_excel(ExcelObject::Workbook(wb));
     println!("db:\n{:#?}", db);
   }
 }

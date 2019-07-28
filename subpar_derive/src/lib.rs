@@ -100,7 +100,7 @@ pub fn from_sheet(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         ),
     };
 
-    let fields = match ast.data {
+    let _fields = match ast.data {
         syn::Data::Struct(ref data) => fields_to_vec(&data.fields),
         _ => panic!(
             "Error implementing FromExcel Macro for {}- this should be derived from a struct",
@@ -116,6 +116,9 @@ pub fn from_sheet(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     // open_wb
     // open
+
+    // for each field,
+    // If any primitive in the group, assume it is a leaf object
 
     // loop worksheet - get row
     let gen = quote! {
