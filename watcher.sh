@@ -7,6 +7,7 @@ export RUST_BACKTRACE=1;
 function rebuild_invoicer {
   echo "\n\n\n\n\n\n\t\t<-------------------------->\n\nBuilding and running the invoicer\n"
   cargo test -- --nocapture
+  cargo expand -p subpar --color=always | tail -n 50
 }
 
 function init {

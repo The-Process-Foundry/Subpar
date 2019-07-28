@@ -218,12 +218,14 @@ impl FromExcel for String {
   }
 }
 
+
+
 #[cfg(test)]
 mod tests {
   // Note this useful idiom: importing names from outer (for mod tests) scope.
   use super::*;
 
-  #[derive(Debug, Clone)]
+  #[derive(Debug, Clone, FromExcel)]
   pub struct Payment {
     guid: String,
     payer: String,
@@ -233,72 +235,44 @@ mod tests {
     // comment: Option<String>,
     // date_received: NaiveDateTime,
   }
+ 
+#[derive(Debug, Clone, FromExcel)]
+pub struct Submission {
+  guid: String,
+  submitting_org: String,
+  // payee: String,
+  // method: String,
+  // amount: f64,
+  // comment: Option<String>,
+  // date_received: NaiveDateTime,
+}
 
-  impl FromExcel for Payment {
-    // Expect a sheet
-    fn from_excel(excel_object: ExcelObject) -> Result<Self, SubparError> {
-      let row = match excel_object {
-        ExcelObject::Row(row) => row,
-        _ => panic!("Payment did not receive a row"),
-      };
-      let guid = String::from_excel(
-        get_cell(ExcelObject::Row(row.clone()), "guid".to_string())
-          .expect("Could not find guid column for Payment"),
-      )
-      .expect("Error converting Payment.guid to a string");
-      let payer = String::from_excel(
-        get_cell(ExcelObject::Row(row.clone()), "payer".to_string())
-          .expect("Could not find payer column for Payment"),
-      )
-      .expect("Error converting Payment.guid to a string");
-      Ok(Payment {
-        guid: guid,
-        payer: payer,
-      })
-    }
+  // impl FromExcel for Submission {
+  //   fn from_excel(excel_object: ExcelObject) -> Result<Self, SubparError> {
+  //     let row = match excel_object {
+  //       ExcelObject::Row(row) => row,
+  //       _ => panic!("Submission did not receive a row"),
+  //     };
+  //     let guid = String::from_excel(
+  //       get_cell(ExcelObject::Row(row.clone()), "guid".to_string())
+  //         .expect("Could not find guid column for Submission"),
+  //     )
+  //     .expect("Error converting Submission.guid to a string");
+  //     let submitting_org = String::from_excel(
+  //       get_cell(ExcelObject::Row(row.clone()), "submitting_org".to_string())
+  //         .expect("Could not find submitting_org column for Submission"),
+  //     )
+  //     .expect("Error converting Submission.submitting_org to a string");
+  //     Ok(Submission {
+  //       guid: guid,
+  //       submitting_org: submitting_org,
+  //     })
+  //   }
 
-    fn get_object_name() -> String {
-      "Payment".to_string()
-    }
-  }
-
-  #[derive(Debug, Clone)]
-  pub struct Submission {
-    guid: String,
-    submitting_org: String,
-    // payee: String,
-    // method: String,
-    // amount: f64,
-    // comment: Option<String>,
-    // date_received: NaiveDateTime,
-  }
-
-  impl FromExcel for Submission {
-    fn from_excel(excel_object: ExcelObject) -> Result<Self, SubparError> {
-      let row = match excel_object {
-        ExcelObject::Row(row) => row,
-        _ => panic!("Submission did not receive a row"),
-      };
-      let guid = String::from_excel(
-        get_cell(ExcelObject::Row(row.clone()), "guid".to_string())
-          .expect("Could not find guid column for Submission"),
-      )
-      .expect("Error converting Submission.guid to a string");
-      let submitting_org = String::from_excel(
-        get_cell(ExcelObject::Row(row.clone()), "submitting_org".to_string())
-          .expect("Could not find submitting_org column for Submission"),
-      )
-      .expect("Error converting Submission.submitting_org to a string");
-      Ok(Submission {
-        guid: guid,
-        submitting_org: submitting_org,
-      })
-    }
-
-    fn get_object_name() -> String {
-      "Submission".to_string()
-    }
-  }
+  //   fn get_object_name() -> String {
+  //     "Submission".to_string()
+  //   }
+  // }
 
   #[derive(Debug, Clone)]
   pub struct DB {
