@@ -175,8 +175,42 @@ fn get_field_type(path: &syn::Type) -> proc_macro2::TokenStream {
   }
 }
 
+/*
+    arguments: AngleBracketed(
+        AngleBracketedGenericArguments {
+            colon2_token: None,
+            lt_token: Lt,
+            args: [
+                Type(
+                    Path(
+                        TypePath {
+                            qself: None,
+                            path: Path {
+                                leading_colon: None,
+                                segments: [
+                                    PathSegment {
+                                        ident: Ident {
+                                            ident: "Payment",
+                                            span: #0 bytes(7428..7435),
+                                        },
+                                        arguments: None,
+                                    },
+                                ],
+                            },
+                        },
+                    ),
+                ),
+            ],
+            gt_token: Gt,
+        },
+    ),
+
+
+
+*/
+
 // Is this path a vector? If so, what is the name in the angle brackets
-fn is_vec(path: &syn::Type) -> Option<syn::Ident> {
+fn is_vec(path: &syn::Type) -> Option<TokenStream> {
   match path {
     syn::Type::Path(type_path) => match &type_path.path.segments.len() {
       0 => panic!("is_vec received a path with no segments"),
@@ -186,8 +220,22 @@ fn is_vec(path: &syn::Type) -> Option<syn::Ident> {
           seg
         ),
         Some(syn::punctuated::Pair::End(seg)) => {
-          println!("is_vec End:\n{:#?}", seg);
-          None
+          // println!("is_vec End:\n{:#?}", seg);
+          match &seg.ident.to_string()[..] {
+            "Vec" => {
+              // println!("**** HEY LOOK, A Vector\n{:#?}", &seg.arguments);
+              match &seg.arguments {
+                syn::PathArguments::AngleBracketed(angle_args) => {
+                  let args = &angle_args.args;
+                  let quoted = quote! { #args };
+                  Some(quoted)
+
+                },
+                x => panic!("Unhandled Vector type. Macro received Segment arguments:\n{:#?}", x),
+              }
+            },
+            _ => None,
+          }
         }
         None => None,
       },
@@ -218,16 +266,14 @@ fn parse_funcs(ast: &syn::DeriveInput) -> TokenStream {
 
         let vec_matches = match is_vec(&f.ty) {
           Some(vec_type) => {
-            println!("Skipping the vector");
+            println!("Looking at the quoted vec type: '{:#?}'", vec_type);
             quote! {
               ExcelObject::Row(_) => <#field_type>::from_excel(excel_object),
               ExcelObject::Workbook(wb) => {
-                let sheet = match wb.get_sheet(#name.to_string()) {
-                  Ok(sheet) => Vec::<#vec_type>::from_excel(&ExcelObject::Sheet(sheet))
-                    .expect("Couldn't make the vector of {}", #quoted_name),
+                match wb.get_sheet(#quoted_name.to_string()) {
+                  Ok(sheet) => Vec::<#vec_type>::from_excel(&ExcelObject::Sheet(sheet)),
                   Err(_) => panic!("Could not open the workbook for  {}", #quoted_name),
-                };
-                <#field_type>::from_excel(sheet),y
+                }
               },
             }
           }

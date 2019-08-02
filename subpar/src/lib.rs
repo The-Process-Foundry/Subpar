@@ -218,6 +218,13 @@ impl FromExcel for String {
   }
 }
 
+
+
+#[cfg(test)]
+mod tests {
+  // Note this useful idiom: importing names from outer (for mod tests) scope.
+  use super::*;
+
 // #[derive(Debug, Clone)]
 #[derive(Debug, Clone, FromExcel)]
 pub struct Payment {
@@ -229,9 +236,6 @@ pub struct Payment {
   // comment: Option<String>,
   // date_received: NaiveDateTime,
 }
-
-
-
 
 
 
@@ -253,88 +257,6 @@ pub struct DB {
   payments: Vec<Payment>,
   submissions: Vec<Submission>,
 }
-
-
-// impl FromExcel for Submission {
-//     fn from_excel(excel_object: &ExcelObject) -> Result<Submission, SubparError> {
-//         let guid = match excel_object {
-//             ExcelObject::Cell(_) => <String>::from_excel(excel_object),
-//             ExcelObject::Sheet(_) => <String>::from_excel(excel_object),
-//             ExcelObject::Workbook(_) => <String>::from_excel(excel_object),
-//             ExcelObject::Row(row) => <String>::from_excel(
-//                 &get_cell(ExcelObject::Row(row.clone()), "guid".to_string())
-//                     .expect("&::alloc::fmt::format(())[..]"),
-//             ),
-//         };
-//         let submitting_org = match excel_object {
-//             ExcelObject::Cell(_) => <String>::from_excel(excel_object),
-//             ExcelObject::Sheet(_) => <String>::from_excel(excel_object),
-//             ExcelObject::Workbook(_) => <String>::from_excel(excel_object),
-//             ExcelObject::Row(row) => <String>::from_excel(
-//                 &get_cell(ExcelObject::Row(row.clone()), "submitting_org".to_string())
-//                     .expect("&::alloc::fmt::format(())[..]"),
-//             ),
-//         };
-//         Ok(Submission {
-//             guid: match guid {
-//                 Ok(x) => x,
-//                 Err(err) => panic!("A"),
-//             },
-//             submitting_org: match submitting_org {
-//                 Ok(x) => x,
-//                 Err(err) => panic!("B"),
-//             },
-//         })
-//     }
-//     fn get_object_name() -> String {
-//         "Submission".to_string()
-//     }
-// }
-
-
-
-
-// impl FromExcel for DB {
-//   fn from_excel(excel_object: &ExcelObject) -> Result<DB, SubparError> {
-//     // let payments = match excel_object {
-//     //   ExcelObject::Cell(_) => <Vec<Payment>>::from_excel(excel_object),
-//     //   ExcelObject::Sheet(_) => <Vec<Payment>>::from_excel(excel_object),
-//     //   ExcelObject::Workbook(_) => <Vec<Payment>>::from_excel(excel_object),
-//     //   ExcelObject::Row(row) => <Vec<Payment>>::from_excel(
-//     //     &get_cell(ExcelObject::Row(row.clone()), "payments".to_string())
-//     //       .expect("&::alloc::fmt::format(())[..]"),
-//     //   ),
-//     // };
-//     let submissions = match excel_object {
-//       ExcelObject::Cell(_) => <Vec<Submission>>::from_excel(excel_object),
-//       ExcelObject::Sheet(_) => <Vec<Submission>>::from_excel(excel_object),
-//       ExcelObject::Workbook(_) => <Vec<Submission>>::from_excel(excel_object),
-//       ExcelObject::Row(row) => <Vec<Submission>>::from_excel(
-//         &get_cell(ExcelObject::Row(row.clone()), "submissions".to_string())
-//           .expect("&::alloc::fmt::format(())[..]"),
-//       ),
-//     };
-//     Ok(DB {
-//       // payments: match payments {
-//       //   Ok(x) => x,
-//       //   Err(err) => panic!("X"),
-//       // },
-//       submissions: match submissions {
-//         Ok(x) => x,
-//         Err(err) => panic!("Y"),
-//       },
-//     })
-//   }
-//   fn get_object_name() -> String {
-//     "DB".to_string()
-//   }
-// }
-
-
-#[cfg(test)]
-mod tests {
-  // Note this useful idiom: importing names from outer (for mod tests) scope.
-  use super::*;
 
   #[test]
   fn test_payment() {
