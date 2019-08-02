@@ -48,7 +48,7 @@ impl MetaWorkbook {
     }
   }
 
-  fn get_sheet(
+  pub fn get_sheet(
     &self,
     sheet_name: String,
   ) -> Result<calamine::Range<calamine::DataType>, SubparError> {
@@ -74,7 +74,7 @@ impl MetaWorkbook {
           sheet_name, err
         ),
         None => panic!(
-          "Get sheet returned None when trying to get sheet {}. Valid members are {:#?}",
+          "Get sheet returned None when trying to get sheet '{}'. Valid members are {:#?}",
           sheet_name,
           wb.sheet_names()
         ),
@@ -113,7 +113,7 @@ pub enum ExcelObject {
 }
 
 impl ExcelObject {
-  fn get_sheet<'a>(&'a self, sheet_name: String) -> Result<Self, SubparError> {
+  pub fn get_sheet<'a>(&'a self, sheet_name: String) -> Result<Self, SubparError> {
     match self {
       ExcelObject::Workbook(wb) => Ok(ExcelObject::Sheet(
         wb.get_sheet(sheet_name).expect("Could not get sheet"),
@@ -153,7 +153,7 @@ pub fn get_cell(excel_object: ExcelObject, cell_name: String) -> Result<ExcelObj
 
 /// Convert a row from a given table into the given struct
 pub trait FromExcel<SubClass = Self> {
-  fn from_excel(from_obj: ExcelObject) -> Result<SubClass, SubparError>;
+  fn from_excel(from_obj: &ExcelObject) -> Result<SubClass, SubparError>;
   fn get_object_name() -> String;
 }
 
@@ -161,7 +161,7 @@ impl<U> FromExcel for Vec<U>
 where
   U: FromExcel,
 {
-  fn from_excel(excel_object: ExcelObject) -> Result<Vec<U>, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<Vec<U>, SubparError> {
     let sheet_name = U::get_object_name();
     println!("In vec::<{}>::from_excel", sheet_name);
 
@@ -183,7 +183,7 @@ where
 
         let mut result: Vec<U> = Vec::new();
         for row in rows {
-          let value = U::from_excel(to_row(row, &lookup)).expect("Error parsing row");
+          let value = U::from_excel(&to_row(row, &lookup)).expect("Error parsing row");
           result.push(value);
         }
         Ok(result)
@@ -198,10 +198,10 @@ where
 }
 
 impl FromExcel for String {
-  fn from_excel(excel_object: ExcelObject) -> Result<String, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<String, SubparError> {
     match excel_object {
       ExcelObject::Cell(cell) => match cell {
-        calamine::DataType::String(value) => Ok(value),
+        calamine::DataType::String(value) => Ok(value.to_string()),
         calamine::DataType::Float(value) => Ok(value.to_string()),
         calamine::DataType::Int(value) => Ok(value.to_string()),
         x => Err(SubparError::InvalidCellType(format!(
@@ -218,24 +218,24 @@ impl FromExcel for String {
   }
 }
 
+// #[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromExcel)]
+pub struct Payment {
+  guid: String,
+  payer: String,
+  // payee: String,
+  // method: String,
+  // amount: f64,
+  // comment: Option<String>,
+  // date_received: NaiveDateTime,
+}
 
 
-#[cfg(test)]
-mod tests {
-  // Note this useful idiom: importing names from outer (for mod tests) scope.
-  use super::*;
 
-  #[derive(Debug, Clone, FromExcel)]
-  pub struct Payment {
-    guid: String,
-    payer: String,
-    // payee: String,
-    // method: String,
-    // amount: f64,
-    // comment: Option<String>,
-    // date_received: NaiveDateTime,
-  }
- 
+
+
+
+// #[derive(Debug, Clone)]
 #[derive(Debug, Clone, FromExcel)]
 pub struct Submission {
   guid: String,
@@ -247,98 +247,99 @@ pub struct Submission {
   // date_received: NaiveDateTime,
 }
 
-  // impl FromExcel for Submission {
-  //   fn from_excel(excel_object: ExcelObject) -> Result<Self, SubparError> {
-  //     let row = match excel_object {
-  //       ExcelObject::Row(row) => row,
-  //       _ => panic!("Submission did not receive a row"),
-  //     };
-  //     let guid = String::from_excel(
-  //       get_cell(ExcelObject::Row(row.clone()), "guid".to_string())
-  //         .expect("Could not find guid column for Submission"),
-  //     )
-  //     .expect("Error converting Submission.guid to a string");
-  //     let submitting_org = String::from_excel(
-  //       get_cell(ExcelObject::Row(row.clone()), "submitting_org".to_string())
-  //         .expect("Could not find submitting_org column for Submission"),
-  //     )
-  //     .expect("Error converting Submission.submitting_org to a string");
-  //     Ok(Submission {
-  //       guid: guid,
-  //       submitting_org: submitting_org,
-  //     })
-  //   }
+// #[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromExcel)]
+pub struct DB {
+  payments: Vec<Payment>,
+  submissions: Vec<Submission>,
+}
 
-  //   fn get_object_name() -> String {
-  //     "Submission".to_string()
-  //   }
-  // }
 
-  #[derive(Debug, Clone)]
-  pub struct DB {
-    payments: Vec<Payment>,
-    submissions: Vec<Submission>,
-  }
+// impl FromExcel for Submission {
+//     fn from_excel(excel_object: &ExcelObject) -> Result<Submission, SubparError> {
+//         let guid = match excel_object {
+//             ExcelObject::Cell(_) => <String>::from_excel(excel_object),
+//             ExcelObject::Sheet(_) => <String>::from_excel(excel_object),
+//             ExcelObject::Workbook(_) => <String>::from_excel(excel_object),
+//             ExcelObject::Row(row) => <String>::from_excel(
+//                 &get_cell(ExcelObject::Row(row.clone()), "guid".to_string())
+//                     .expect("&::alloc::fmt::format(())[..]"),
+//             ),
+//         };
+//         let submitting_org = match excel_object {
+//             ExcelObject::Cell(_) => <String>::from_excel(excel_object),
+//             ExcelObject::Sheet(_) => <String>::from_excel(excel_object),
+//             ExcelObject::Workbook(_) => <String>::from_excel(excel_object),
+//             ExcelObject::Row(row) => <String>::from_excel(
+//                 &get_cell(ExcelObject::Row(row.clone()), "submitting_org".to_string())
+//                     .expect("&::alloc::fmt::format(())[..]"),
+//             ),
+//         };
+//         Ok(Submission {
+//             guid: match guid {
+//                 Ok(x) => x,
+//                 Err(err) => panic!("A"),
+//             },
+//             submitting_org: match submitting_org {
+//                 Ok(x) => x,
+//                 Err(err) => panic!("B"),
+//             },
+//         })
+//     }
+//     fn get_object_name() -> String {
+//         "Submission".to_string()
+//     }
+// }
 
-  impl FromExcel for DB {
-    fn from_excel(excel_object: ExcelObject) -> Result<DB, SubparError> {
-      // Since this is a Vec type, we open the sheet
-      let payments = match excel_object.get_sheet("Payment".to_string()) {
-        Ok(sheet) => {
-          Vec::<Payment>::from_excel(sheet).expect("Couldn't make the vector of Payment")
-        }
-        Err(_) => panic!("Could not open the workbook for Payment"),
-      };
-      let submissions = match excel_object.get_sheet("Submission".to_string()) {
-        Ok(sheet) => {
-          Vec::<Submission>::from_excel(sheet).expect("Couldn't make the vector of Submission")
-        }
-        Err(_) => panic!("Could not open the workbook for Submission"),
-      };
 
-      Ok(DB {
-        payments: payments,
-        submissions: submissions,
-      })
-    }
 
-    fn get_object_name() -> String {
-      "DB".to_string()
-    }
-  }
+
+// impl FromExcel for DB {
+//   fn from_excel(excel_object: &ExcelObject) -> Result<DB, SubparError> {
+//     // let payments = match excel_object {
+//     //   ExcelObject::Cell(_) => <Vec<Payment>>::from_excel(excel_object),
+//     //   ExcelObject::Sheet(_) => <Vec<Payment>>::from_excel(excel_object),
+//     //   ExcelObject::Workbook(_) => <Vec<Payment>>::from_excel(excel_object),
+//     //   ExcelObject::Row(row) => <Vec<Payment>>::from_excel(
+//     //     &get_cell(ExcelObject::Row(row.clone()), "payments".to_string())
+//     //       .expect("&::alloc::fmt::format(())[..]"),
+//     //   ),
+//     // };
+//     let submissions = match excel_object {
+//       ExcelObject::Cell(_) => <Vec<Submission>>::from_excel(excel_object),
+//       ExcelObject::Sheet(_) => <Vec<Submission>>::from_excel(excel_object),
+//       ExcelObject::Workbook(_) => <Vec<Submission>>::from_excel(excel_object),
+//       ExcelObject::Row(row) => <Vec<Submission>>::from_excel(
+//         &get_cell(ExcelObject::Row(row.clone()), "submissions".to_string())
+//           .expect("&::alloc::fmt::format(())[..]"),
+//       ),
+//     };
+//     Ok(DB {
+//       // payments: match payments {
+//       //   Ok(x) => x,
+//       //   Err(err) => panic!("X"),
+//       // },
+//       submissions: match submissions {
+//         Ok(x) => x,
+//         Err(err) => panic!("Y"),
+//       },
+//     })
+//   }
+//   fn get_object_name() -> String {
+//     "DB".to_string()
+//   }
+// }
+
+
+#[cfg(test)]
+mod tests {
+  // Note this useful idiom: importing names from outer (for mod tests) scope.
+  use super::*;
 
   #[test]
   fn test_payment() {
     let wb = MetaWorkbook::new("../subpar_test/data/test_db.xlsx".to_string());
-    let db = DB::from_excel(ExcelObject::Workbook(wb));
+    let db = DB::from_excel(&ExcelObject::Workbook(wb));
     println!("db:\n{:#?}", db);
   }
 }
-
-// match {
-//   ExcelObject::Sheet(sheet) => {
-//     let mut rows = sheet.rows();
-//     let mut lookup: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-//     if let Some(headers) = rows.next() {
-//         for (i, cell) in headers.iter().enumerate() {
-//             match cell {
-//                 calamine::DataType::String(value) => {
-//                     lookup.insert(value.to_lowercase().trim().to_string(), i);
-//                 }
-//                 calamine::DataType::Empty => (),
-//                 _ => println!("Cell '{:?}' is not a string", cell),
-//             }
-//         }
-//     }
-
-//     let mut result: Vec<Payment> = Vec::new();
-//     for row in rows {
-//       let excel_row = to_row(row, &lookup);
-
-//       let guid = String::from_excel(get_cell(excel_row, "guid".to_string()).expect("Could not find guid column for Payment")).expect("Error converting Payment.guid to a string");
-//       result.push(Payment{guid: guid});
-//     }
-//     result
-//   },
-//   _ => panic!("We expected an excel sheet here")
-// };
