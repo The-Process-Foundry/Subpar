@@ -1,7 +1,7 @@
 #! /usr/bin/env zsh
 
 
-export RUST_BACKTRACE=1;
+export RUST_BACKTRACE=0;
 
 
 function rebuild_invoicer {
@@ -36,7 +36,7 @@ rebuild_invoicer
 while true; do
   command -v inotifywait > /dev/null 2>&1 || $(echo -e "InotifyWait not installed" && exit 1)
   echo -e $(pwd)
-  EVENT=$(inotifywait -r -e modify ./watcher.sh ./Cargo.toml ./subpar/* ./subpar_derive/*)
+  EVENT=$(inotifywait -r -e modify ./watcher.sh ./Cargo.toml ./subpar/* ./subpar_derive/* ./subpar_test/*)
   FILE_PATH=${EVENT/${modify}/}
   # echo -e "\nReceived event on file: '${FILE_PATH}'"
 

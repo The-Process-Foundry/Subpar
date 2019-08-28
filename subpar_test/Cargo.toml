@@ -6,9 +6,11 @@ authors = ["Dave Fogelson <dfogelson@fishheadlabs.com>"]
 license = "MIT"
 edition = "2018"
 publish = false
+include = ["Cargo.toml", "src/*.rs", "crates-io.md", "README.md", "LICENSE-MIT"]
 
 
 [dependencies]
 subpar = { path = "../subpar" }
 subpar_derive = { path = "../subpar_derive" }
+calamine = "0.15.5"
 chrono = "0.4.7"
