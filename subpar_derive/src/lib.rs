@@ -241,15 +241,29 @@ fn parse_funcs(ast: &syn::DeriveInput) -> TokenStream {
       let iterator = fields.named.iter().map(|f| {
         let name = &f.ident;
         let field_type = get_field_type(&f.ty);
-        let quoted_name = id_to_lit(&f.ident);
 
         let opts = FieldOptions::load_attributes(&f.attrs);
+        let quoted_name = match &opts.rename {
+          Some(name) => syn::LitStr::new(name.to_string().as_ref(), proc_macro2::Span::call_site()),
+          None => id_to_lit(&f.ident),
+        };
+
+        let field_from_excel = match &opts.parser {
+          Some(name) => {
+            let func = syn::Ident::new(&name, proc_macro2::Span::call_site());
+            quote!{ #func }
+          }
+          None => quote! { <#field_type>::from_excel },
+        };
+
         // println!("\n\n-->The Parsed Opts:\n{:#?}", opts);
+        // println!("Quoted Name: {:#?}", quoted_name);
+        // println!("Field from excel: {:#?}", field_from_excel);
         let vec_matches = match is_vec(&f.ty) {
           Some(vec_type) => {
             // println!("Looking at the quoted vec type: '{:#?}'", vec_type);
             quote! {
-              ExcelObject::Row(_) => <#field_type>::from_excel(excel_object),
+              ExcelObject::Row(_) => #field_from_excel(excel_object),
               ExcelObject::Workbook(wb) => {
                 match wb.get_sheet(#quoted_name.to_string()) {
                   Ok(sheet) => Vec::<#vec_type>::from_excel(&ExcelObject::Sheet(sheet)),
@@ -261,19 +275,19 @@ fn parse_funcs(ast: &syn::DeriveInput) -> TokenStream {
           // TODO: get_cell is only if it is a primitive. Need to enumerate the code so the user can overload
           //       specific data types for multi-column composites
           None => quote! {
-            ExcelObject::Workbook(_) => <#field_type>::from_excel(excel_object),
-            ExcelObject::Row(row) =>
-             <#field_type>::from_excel(
-              &subpar::get_cell(ExcelObject::Row(row.clone()), #quoted_name.to_string())
-                .expect(&format!("Could not find column named '{}'", #quoted_name)[..])
-              ),
+            ExcelObject::Workbook(_) => #field_from_excel(excel_object),
+            ExcelObject::Row(row) => {
+              let cell = &subpar::get_cell(ExcelObject::Row(row.clone()), #quoted_name.to_string())
+                .expect(&format!("Could not find column named '{}'", #quoted_name)[..]);
+              #field_from_excel(cell)
+            }
           },
         };
 
         quote! {
           let #name = match excel_object {
-            ExcelObject::Cell(_) => <#field_type>::from_excel(excel_object),
-            ExcelObject::Sheet(_) => <#field_type>::from_excel(excel_object),
+            ExcelObject::Cell(_) => #field_from_excel(excel_object),
+            ExcelObject::Sheet(_) => #field_from_excel(excel_object),
             #vec_matches
           };
         }

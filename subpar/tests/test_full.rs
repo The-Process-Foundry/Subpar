@@ -64,30 +64,48 @@ use subpar::{SubparError, ExcelObject, MetaWorkbook, FromExcel};
 //   payments: Vec<Payment>,
 // }
 
-
+// #[derive(Debug, Clone)]
 #[derive(Debug, Clone, FromExcel)]
 pub struct Payment {
   guid: String,
-  payer: String,
-  payee: String,
-  method: String,
-  amount: f64,
-  comment: Option<String>,
-  date_received: NaiveDateTime,
+  #[subpar(parser="cell_csv_to_vec")]
+  strings: Vec<String>,
+  // payer: String,
+  // payee: String,
+  // method: String,
+  // amount: f64,
+  // comment: Option<String>,
+  // date_received: NaiveDateTime,
 }
 
+// #[derive(Debug, Clone)]
 #[derive(Debug, Clone, FromExcel)]
 pub struct DB {
   // pub sent_messages: Vec<SentMessage>,
   // pub submissions: Vec<Submission>,
 
-  #[subpar(rename="payment", parser="cell_csv_to_vec")]
+  #[subpar(rename="payments")]
   pub payment: Vec<Payment>,
 }
 
-
-pub fn cell_csv_to_vec (_cell: DataType) -> Result<Vec<String>, SubparError> {
-  Err(SubparError::NotImplemented("cell_csv_to_vec is not yet implemented".to_string()))
+pub fn cell_csv_to_vec (wrapped: &ExcelObject) -> Result<Vec<String>, SubparError> {
+  let row = wrapped.unwrap_row().expect("There was an error unwrapping the object in cell_csv_to_vec");
+  match row.get("payment") {
+    None => panic!("No cell named payment in the row"),
+    Some(DataType::String(value)) => {
+      println!("The cell is: {:#?}", value);
+      Ok(
+        value
+          .trim_matches(|c| c == '[' || c == ']')
+          .replace(" ", "")
+          .split(",").filter(|&x| x != "")
+          .map(|s| s.to_string())
+          .collect::<Vec<_>>()
+      )
+    },
+    Some(x) => panic!(format!("\n!!! Cannot turn {:?} into a Vec<String> for Payment", x)),
+    None => panic!(format!("Could not find a column named payment in cell_csv_to_vec")),
+  }
 }
 
 

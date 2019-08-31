@@ -8,8 +8,8 @@ pub use subpar_derive::FromExcel;
 /// The full set of exceptions that can be raised at any step in this process
 #[derive(Debug, Clone)]
 pub enum SubparError {
+  IncorrectExcelObject(String),
   InvalidCellType(String),
-  InvalidExcelObject(String),
   InvalidPath(String),
   FileReadOnly(String),
   NotFound(String),
@@ -120,11 +120,31 @@ impl ExcelObject {
       ExcelObject::Workbook(wb) => Ok(ExcelObject::Sheet(
         wb.get_sheet(sheet_name).expect("Could not get sheet"),
       )),
-      _ => Err(SubparError::InvalidExcelObject(
+      _ => Err(SubparError::IncorrectExcelObject(
         "Can only call get_sheet on ExcelObject::Workbook Objects".to_string(),
       )),
     }
   }
+
+  pub fn unwrap_cell<'a>(&'a self) -> Result<calamine::DataType, SubparError> {
+    match self {
+      ExcelObject::Cell(cell) => Ok(cell.clone()),
+      _ => Err(SubparError::IncorrectExcelObject(
+        "unwrap_cell expects a cell object but received something different".to_string()
+      )),
+    }
+  }
+
+  pub fn unwrap_row<'a>(&'a self) -> Result<HashMap<String, calamine::DataType>, SubparError> {
+    match self {
+      ExcelObject::Row(row) => Ok(row.clone()),
+      _ => Err(SubparError::IncorrectExcelObject(
+        "unwrap_row expects a row hash but received something different".to_string()
+      )),
+    }
+  }
+
+
 }
 
 fn to_row(raw: &[calamine::DataType], headers: &HashMap<String, usize>) -> ExcelObject {
