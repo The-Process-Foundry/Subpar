@@ -2,8 +2,10 @@ use calamine::{DataType, Reader};
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use std::collections::HashMap;
 
+pub mod writer;
+
 #[doc(hidden)]
-pub use subpar_derive::FromExcel;
+pub use subpar_derive::ExcelIO;
 
 /// The full set of exceptions that can be raised at any step in this process
 #[derive(Debug, Clone)]
@@ -130,7 +132,7 @@ impl ExcelObject {
     match self {
       ExcelObject::Cell(cell) => Ok(cell.clone()),
       _ => Err(SubparError::IncorrectExcelObject(
-        "unwrap_cell expects a cell object but received something different".to_string()
+        "unwrap_cell expects a cell object but received something different".to_string(),
       )),
     }
   }
@@ -139,12 +141,10 @@ impl ExcelObject {
     match self {
       ExcelObject::Row(row) => Ok(row.clone()),
       _ => Err(SubparError::IncorrectExcelObject(
-        "unwrap_row expects a row hash but received something different".to_string()
+        "unwrap_row expects a row hash but received something different".to_string(),
       )),
     }
   }
-
-
 }
 
 fn to_row(raw: &[calamine::DataType], headers: &HashMap<String, usize>) -> ExcelObject {
@@ -174,14 +174,15 @@ pub fn get_cell(excel_object: ExcelObject, cell_name: String) -> Result<ExcelObj
 }
 
 /// Convert a row from a given table into the given struct
-pub trait FromExcel<SubClass = Self> {
+pub trait ExcelIO<SubClass = Self> {
+  fn to_excel(_item: Self, _workbook: &ExcelObject) -> Result<(), SubparError>;
   fn from_excel(from_obj: &ExcelObject) -> Result<SubClass, SubparError>;
   fn get_object_name() -> String;
 }
 
-impl<U> FromExcel for Vec<U>
+impl<U> ExcelIO for Vec<U>
 where
-  U: FromExcel,
+  U: ExcelIO,
 {
   fn from_excel(excel_object: &ExcelObject) -> Result<Vec<U>, SubparError> {
     let sheet_name = U::get_object_name();
@@ -214,14 +215,18 @@ where
     }
   }
 
+  fn to_excel(_item: Self, _workbook: &ExcelObject) -> Result<(), SubparError> {
+    panic!("to_excel not implemented for this class")
+  }
+
   fn get_object_name() -> String {
     U::get_object_name()
   }
 }
 
-impl<U> FromExcel for Option<U>
+impl<U> ExcelIO for Option<U>
 where
-  U: FromExcel,
+  U: ExcelIO,
 {
   fn from_excel(excel_object: &ExcelObject) -> Result<Option<U>, SubparError> {
     match excel_object {
@@ -236,12 +241,16 @@ where
     }
   }
 
+  fn to_excel(_item: Self, _workbook: &ExcelObject) -> Result<(), SubparError> {
+    panic!("to_excel not implemented for this class")
+  }
+
   fn get_object_name() -> String {
     panic!("Tried get_object_name for an Option cell, which makes no sense")
   }
 }
 
-impl FromExcel for String {
+impl ExcelIO for String {
   fn from_excel(excel_object: &ExcelObject) -> Result<String, SubparError> {
     match excel_object {
       ExcelObject::Cell(cell) => match cell {
@@ -260,12 +269,16 @@ impl FromExcel for String {
     }
   }
 
+  fn to_excel(_item: Self, _workbook: &ExcelObject) -> Result<(), SubparError> {
+    panic!("to_excel not implemented for this class")
+  }
+
   fn get_object_name() -> String {
     panic!("Tried get_sheet_name for a String, which makes no sense")
   }
 }
 
-impl FromExcel for NaiveDateTime {
+impl ExcelIO for NaiveDateTime {
   fn from_excel(excel_object: &ExcelObject) -> Result<NaiveDateTime, SubparError> {
     match f64::from_excel(excel_object) {
       Ok(excel_date) => {
@@ -279,12 +292,16 @@ impl FromExcel for NaiveDateTime {
     }
   }
 
+  fn to_excel(_item: Self, _workbook: &ExcelObject) -> Result<(), SubparError> {
+    panic!("to_excel not implemented for this class")
+  }
+
   fn get_object_name() -> String {
     panic!("Tried get_object_name for an Option cell, which makes no sense")
   }
 }
 
-impl FromExcel for f64 {
+impl ExcelIO for f64 {
   fn from_excel(excel_object: &ExcelObject) -> Result<f64, SubparError> {
     match excel_object {
       ExcelObject::Cell(cell) => match cell {
@@ -303,12 +320,16 @@ impl FromExcel for f64 {
     }
   }
 
+  fn to_excel(_item: Self, _workbook: &ExcelObject) -> Result<(), SubparError> {
+    panic!("to_excel not implemented for this class")
+  }
+
   fn get_object_name() -> String {
     panic!("Tried get_object_name for an f64 cell, which makes no sense")
   }
 }
 
-impl FromExcel for f32 {
+impl ExcelIO for f32 {
   fn from_excel(excel_object: &ExcelObject) -> Result<f32, SubparError> {
     match excel_object {
       ExcelObject::Cell(cell) => match cell {
@@ -327,12 +348,16 @@ impl FromExcel for f32 {
     }
   }
 
+  fn to_excel(_item: Self, _workbook: &ExcelObject) -> Result<(), SubparError> {
+    panic!("to_excel not implemented for this class")
+  }
+
   fn get_object_name() -> String {
     panic!("Tried get_object_name for an f32 cell, which makes no sense")
   }
 }
 
-impl FromExcel for i64 {
+impl ExcelIO for i64 {
   fn from_excel(excel_object: &ExcelObject) -> Result<i64, SubparError> {
     match excel_object {
       ExcelObject::Cell(cell) => match cell {
@@ -351,12 +376,16 @@ impl FromExcel for i64 {
     }
   }
 
+  fn to_excel(_item: Self, _workbook: &ExcelObject) -> Result<(), SubparError> {
+    panic!("to_excel not implemented for this class")
+  }
+
   fn get_object_name() -> String {
     panic!("Tried get_object_name for an i64 cell, which makes no sense")
   }
 }
 
-impl FromExcel for i32 {
+impl ExcelIO for i32 {
   fn from_excel(excel_object: &ExcelObject) -> Result<i32, SubparError> {
     match excel_object {
       ExcelObject::Cell(cell) => match cell {
@@ -375,12 +404,16 @@ impl FromExcel for i32 {
     }
   }
 
+  fn to_excel(_item: Self, _workbook: &ExcelObject) -> Result<(), SubparError> {
+    panic!("to_excel not implemented for this class")
+  }
+
   fn get_object_name() -> String {
     panic!("Tried get_object_name for an i32 cell, which makes no sense")
   }
 }
 
-impl FromExcel for i16 {
+impl ExcelIO for i16 {
   fn from_excel(excel_object: &ExcelObject) -> Result<i16, SubparError> {
     match excel_object {
       ExcelObject::Cell(cell) => match cell {
@@ -399,58 +432,11 @@ impl FromExcel for i16 {
     }
   }
 
+  fn to_excel(_item: Self, _workbook: &ExcelObject) -> Result<(), SubparError> {
+    panic!("to_excel not implemented for this class")
+  }
+
   fn get_object_name() -> String {
     panic!("Tried get_object_name for an i16 cell, which makes no sense")
   }
 }
-
-pub fn cell_csv_to_vec (cell: DataType) -> Result<Vec<String>, SubparError> {
-  Err(SubparError::NotImplemented("cell_csv_to_vec is not yet implemented".to_string()))
-}
-
-// #[cfg(test)]
-// mod tests {
-//   // Note this useful idiom: importing names from outer (for mod tests) scope.
-//   use super::*;
-
-//   #[derive(Debug, Clone, FromExcel)]
-//   // #[derive(Debug, Clone, FromExcel)]
-//   pub struct Payment {
-//     guid: String,
-//     payer: String,
-    
-//     #[subpar(column="I'm the Payment", parser="cell_csv_to_vec")]
-//     number_list: Vec<String>
-//     // payee: String,
-//     // method: String,
-//     // amount: f64,
-//     // comment: Option<String>,
-//     // date_received: NaiveDateTime,
-//   }
-
-//   #[derive(Debug, Clone)]
-//   // #[derive(Debug, Clone, FromExcel)]
-//   pub struct Submission {
-//     guid: String,
-//     submitting_org: String,
-//     // payee: String,
-//     // method: String,
-//     amount: f64,
-//     // comment: Option<String>,
-//     // date_received: NaiveDateTime,
-//   }
-
-//   // #[derive(Debug, Clone)]
-//   #[derive(Debug, Clone, FromExcel)]
-//   pub struct DB {
-//     payments: Vec<Payment>,
-//     // submissions: Vec<Submission>,
-//   }
-
-//   #[test]
-//   fn test_payment() {
-//     let wb = MetaWorkbook::new("../subpar_test/data/test_db.xlsx".to_string());
-//     let db = DB::from_excel(&ExcelObject::Workbook(wb));
-//     println!("db:\n{:#?}", db);
-//   }
-// }

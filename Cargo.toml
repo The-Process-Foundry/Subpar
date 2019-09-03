@@ -2,4 +2,5 @@
 members = [
     "subpar",
     "subpar_derive",
+    "xlswriter-rs",
 ]
