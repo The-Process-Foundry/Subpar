@@ -5,6 +5,7 @@ extern crate subpar;
 use calamine::DataType;
 use chrono::NaiveDateTime;
 use subpar::{ExcelIO, ExcelObject, MetaWorkbook, SubparError};
+use xlsxwriter_rs::*;
 
 // #[derive(Debug, Clone)]
 #[derive(Debug, Clone, ExcelIO)]
@@ -90,4 +91,32 @@ fn test_ctx() {
 // #[test]
 // fn test_writer() {
 //   subpar::writer::create_workbook()
+// }
+
+// #[test]
+// fn test_xlsxwriter_sanity() {
+//   println!("Testing the sanity of the project");
+
+//   let wb = create_workbook("/tmp/test_excel.xlsx");
+//   let sheet = create_sheet(wb, "Test_Worksheet");
+//   // let header_format = Some(unsafe { lxw_format_new() });
+//   let row: lxw_row_t = 0;
+//   let col: lxw_col_t = 0;
+//   write_cell(sheet, row, col, "Cell Header", None);
+//   println! {"Writing workbook: {:#?}", write_workbook(wb)}
+
+//   //     lxw_worksheet *worksheet = workbook_add_worksheet(workbook, NULL);
+//   //     int row = 0;
+//   //     int col = 0;
+//   //     worksheet_write_string(worksheet, row, col, "Hello me!", NULL);
+
+//   // #include "xlsxwriter.h"
+//   // int main() {
+//   //     lxw_workbook  *workbook  = workbook_new("myexcel.xlsx");
+//   //     lxw_worksheet *worksheet = workbook_add_worksheet(workbook, NULL);
+//   //     int row = 0;
+//   //     int col = 0;
+//   //     worksheet_write_string(worksheet, row, col, "Hello me!", NULL);
+//   //     return workbook_close(workbook);
+//   // }
 // }

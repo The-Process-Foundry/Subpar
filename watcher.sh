@@ -1,14 +1,15 @@
 #! /usr/bin/env zsh
 
-export RUST_BACKTRACE=0;
-# After we install the libxlswriter, we need to ensure it's in the build path
+export RUST_BACKTRACE=1;
+# After we install the libxlsxwriter, we need to ensure it's in the build path
 # export RUSTFLAGS='-L /usr/local/lib'
 
 
 function rebuild_invoicer {
   echo "\n\n\n\n\n\n\t\t<-------------------------->\n\nBuilding and running the invoicer\n"
-  # cargo build -p xlswriter-rs
-  cargo test -- --nocapture -p xlswriter-rs
+  # cargo build -p xlsxwriter-rs
+  rm -f /tmp/*xlsx
+  cargo test -- --nocapture --test test_xlsxwriter_unsafe_sanity
   # cargo expand -p subpar --color=always | tail -n 100
 }
 
@@ -38,7 +39,7 @@ rebuild_invoicer
 while true; do
   command -v inotifywait > /dev/null 2>&1 || $(echo -e "InotifyWait not installed" && exit 1)
   echo -e $(pwd)
-  EVENT=$(inotifywait -r -e modify ./watcher.sh ./Cargo.toml ./subpar/* ./subpar_derive/* ./subpar_test/* ./xlswriter-rs/*)
+  EVENT=$(inotifywait -r -e modify ./watcher.sh ./Cargo.toml ./subpar/* ./subpar_derive/* ./xlsxwriter_rs/*)
   FILE_PATH=${EVENT/${modify}/}
   # echo -e "\nReceived event on file: '${FILE_PATH}'"
 
