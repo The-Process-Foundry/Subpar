@@ -9,8 +9,6 @@ description = "A set of traits and derives for (de)serializing excel spreadsheet
 
 
 [dependencies]
-xlsxwriter_rs = {path = "../xlsxwriter_rs"}
 subpar_derive = { path = "../subpar_derive" }
-chrono = "0.4.8"
-calamine = "0.15.6"
-
+chrono = "0.4.7"
+calamine = "0.15.5"
