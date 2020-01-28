@@ -130,7 +130,7 @@ impl ExcelObject {
     match self {
       ExcelObject::Cell(cell) => Ok(cell.clone()),
       _ => Err(SubparError::IncorrectExcelObject(
-        "unwrap_cell expects a cell object but received something different".to_string()
+        "unwrap_cell expects a cell object but received something different".to_string(),
       )),
     }
   }
@@ -139,12 +139,10 @@ impl ExcelObject {
     match self {
       ExcelObject::Row(row) => Ok(row.clone()),
       _ => Err(SubparError::IncorrectExcelObject(
-        "unwrap_row expects a row hash but received something different".to_string()
+        "unwrap_row expects a row hash but received something different".to_string(),
       )),
     }
   }
-
-
 }
 
 fn to_row(raw: &[calamine::DataType], headers: &HashMap<String, usize>) -> ExcelObject {
@@ -404,8 +402,10 @@ impl FromExcel for i16 {
   }
 }
 
-pub fn cell_csv_to_vec (cell: DataType) -> Result<Vec<String>, SubparError> {
-  Err(SubparError::NotImplemented("cell_csv_to_vec is not yet implemented".to_string()))
+pub fn cell_csv_to_vec(_cell: DataType) -> Result<Vec<String>, SubparError> {
+  Err(SubparError::NotImplemented(
+    "cell_csv_to_vec is not yet implemented".to_string(),
+  ))
 }
 
 // #[cfg(test)]
@@ -418,7 +418,6 @@ pub fn cell_csv_to_vec (cell: DataType) -> Result<Vec<String>, SubparError> {
 //   pub struct Payment {
 //     guid: String,
 //     payer: String,
-    
 //     #[subpar(column="I'm the Payment", parser="cell_csv_to_vec")]
 //     number_list: Vec<String>
 //     // payee: String,

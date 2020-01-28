@@ -4,77 +4,17 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput, Fields};
 
-
-
 #[derive(Clone, Debug)]
 struct FieldOptions {
   /// Uses this value instead of the field value to figure out the sheet/column name
   rename: Option<String>,
 
-  /// The name of a function that takes in an excel cell and returns a value of the given type or a 
+  /// The name of a function that takes in an excel cell and returns a value of the given type or a
   /// SubparError
   parser: Option<String>,
-
 }
 
-
-fn is_subpar_attr (attr: &syn::Attribute)-> bool {
-  match &attr.path.segments.first() {
-    Some(seg) => match seg.ident.to_string().as_ref() {
-      "subpar" => true,
-      _ => false
-    },
-    None => false
-  }
-}
-
-/*
-    List(
-        MetaList {
-            path: Path {
-                leading_colon: None,
-                segments: [
-                    PathSegment {
-                        ident: Ident {
-                            ident: "subpar",
-                            span: #0 bytes(2389..2395),
-                        },
-                        arguments: None,
-                    },
-                ],
-            },
-            paren_token: Paren,
-            nested: [
-                Meta(
-                    NameValue(
-                        MetaNameValue {
-                            path: Path {
-                                leading_colon: None,
-                                segments: [
-                                    PathSegment {
-                                        ident: Ident {
-                                            ident: "rename",
-                                            span: #0 bytes(2396..2402),
-                                        },
-                                        arguments: None,
-                                    },
-                                ],
-                            },
-                            eq_token: Eq,
-                            lit: Str(
-                                LitStr {
-                                    token: "payment",
-                                },
-                            ),
-                        },
-                    ),
-                ),
-            ],
-        },
-    ),
-*/
-
-fn parse_opts (attr: syn::Meta, opts: FieldOptions) -> FieldOptions {
+fn parse_opts(attr: syn::Meta, opts: FieldOptions) -> FieldOptions {
   match attr {
     syn::Meta::List(meta) => {
       meta.nested.iter().fold(opts, |acc, param| {
@@ -83,16 +23,27 @@ fn parse_opts (attr: syn::Meta, opts: FieldOptions) -> FieldOptions {
           syn::NestedMeta::Meta(syn::Meta::NameValue(name_value)) => {
             let value = match &name_value.lit {
               syn::Lit::Str(lit_str) => lit_str.value(),
-              _ => panic!("Unhandled syn::Lit type")
+              _ => panic!("Unhandled syn::Lit type"),
             };
 
-            match name_value.path.segments[0].ident.clone().to_string().as_ref() {
-              "rename" => FieldOptions {rename: Some(value), ..acc},
-              "parser" => FieldOptions {parser: Some(value), ..acc},
-              x => panic!("parse_group error: '{:#?}' is an unknown option", x)
+            match name_value.path.segments[0]
+              .ident
+              .clone()
+              .to_string()
+              .as_ref()
+            {
+              "rename" => FieldOptions {
+                rename: Some(value),
+                ..acc
+              },
+              "parser" => FieldOptions {
+                parser: Some(value),
+                ..acc
+              },
+              x => panic!("parse_group error: '{:#?}' is an unknown option", x),
             }
           }
-        _ => panic!("parse_group error: Unhandled syn::Meta in nested"),
+          _ => panic!("parse_group error: Unhandled syn::Meta in nested"),
         }
       })
     }
@@ -101,30 +52,25 @@ fn parse_opts (attr: syn::Meta, opts: FieldOptions) -> FieldOptions {
 }
 
 impl FieldOptions {
-  pub fn default () -> FieldOptions {
+  pub fn default() -> FieldOptions {
     FieldOptions {
       rename: None,
       parser: None,
     }
   }
 
-  pub fn load_attributes (attrs: &Vec<syn::Attribute>) -> FieldOptions {
-    attrs.iter().fold(
-      FieldOptions::default(),
-      |acc, attr| {
-        match attr.path.segments[0].ident == "subpar"  {
-          false => acc,
-          true => {
-            match attr.parse_meta() {
-              Err(err) => panic!("{}", err),
-              Ok(meta) => parse_opts(meta, acc),
-            }
-          },
-        }
-      })
+  pub fn load_attributes(attrs: &Vec<syn::Attribute>) -> FieldOptions {
+    attrs.iter().fold(FieldOptions::default(), |acc, attr| {
+      match attr.path.segments[0].ident == "subpar" {
+        false => acc,
+        true => match attr.parse_meta() {
+          Err(err) => panic!("{}", err),
+          Ok(meta) => parse_opts(meta, acc),
+        },
+      }
+    })
   }
 }
-
 
 fn id_to_lit(value: &Option<syn::Ident>) -> syn::LitStr {
   match value {
@@ -175,19 +121,17 @@ fn build_return_struct(ast: &syn::DeriveInput) -> TokenStream {
 /// Turn the type into a string for inserting the recursive from_excel call
 fn get_field_type(path: &syn::Type) -> proc_macro2::TokenStream {
   match path {
-    syn::Type::Path(type_path) => {
-      match &type_path.path.segments.len() {
-        0 => panic!("I don't know what to do with a field type with no segments"),
-        1 => {
-          let segment = &type_path.path.segments.first();
-          match segment {
-            Some(seg) => quote! { #seg },
-            None => panic!("Got None for the first identifier"),
-          }
+    syn::Type::Path(type_path) => match &type_path.path.segments.len() {
+      0 => panic!("I don't know what to do with a field type with no segments"),
+      1 => {
+        let segment = &type_path.path.segments.first();
+        match segment {
+          Some(seg) => quote! { #seg },
+          None => panic!("Got None for the first identifier"),
         }
-        _ => panic!("Received more than one type segment for TypePath"),
       }
-    }
+      _ => panic!("Received more than one type segment for TypePath"),
+    },
     _ => panic!("TypePath was not a path"),
   }
 }
@@ -197,25 +141,21 @@ fn is_vec(path: &syn::Type) -> Option<TokenStream> {
   match path {
     syn::Type::Path(type_path) => match &type_path.path.segments.len() {
       0 => panic!("is_vec received a path with no segments"),
-      1 => match &type_path.path.segments.first() { 
-        Some(seg) => {
-          match &seg.ident.to_string()[..] {
-            "Vec" => {
-              match &seg.arguments {
-                syn::PathArguments::AngleBracketed(angle_args) => {
-                  let args = &angle_args.args;
-                  let quoted = quote! { #args };
-                  Some(quoted)
-                }
-                x => panic!(
-                  "Unhandled Vector type. Macro received Segment arguments:\n{:#?}",
-                  x
-                ),
-              }
+      1 => match &type_path.path.segments.first() {
+        Some(seg) => match &seg.ident.to_string()[..] {
+          "Vec" => match &seg.arguments {
+            syn::PathArguments::AngleBracketed(angle_args) => {
+              let args = &angle_args.args;
+              let quoted = quote! { #args };
+              Some(quoted)
             }
-            _ => None,
-          }
-        }
+            x => panic!(
+              "Unhandled Vector type. Macro received Segment arguments:\n{:#?}",
+              x
+            ),
+          },
+          _ => None,
+        },
         None => None,
       },
       _ => panic!("Received more than one type segment for TypePath"),
@@ -251,7 +191,7 @@ fn parse_funcs(ast: &syn::DeriveInput) -> TokenStream {
         let field_from_excel = match &opts.parser {
           Some(name) => {
             let func = syn::Ident::new(&name, proc_macro2::Span::call_site());
-            quote!{ #func }
+            quote! { #func }
           }
           None => quote! { <#field_type>::from_excel },
         };
