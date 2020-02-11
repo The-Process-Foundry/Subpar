@@ -50,7 +50,7 @@ fn parse_opts(attr: syn::Meta, opts: FieldOptions) -> FieldOptions {
     _ => panic!("parse_group error: Unhandled syn::Meta type for at attribute root"),
   }
 }
-
+// TODO: Add in special: Row_Id
 impl FieldOptions {
   pub fn default() -> FieldOptions {
     FieldOptions {
@@ -104,7 +104,7 @@ fn build_return_struct(ast: &syn::DeriveInput) -> TokenStream {
   let fields = match ast.data {
     syn::Data::Struct(ref data) => fields_to_struct(&data.fields),
     _ => panic!(
-      "Error implementing FromExcel Macro for {}- this should be derived from a struct",
+      "Error implementing SubparTable Macro for {}- this should be derived from a struct",
       name
     ),
   };
@@ -171,7 +171,7 @@ fn parse_funcs(ast: &syn::DeriveInput) -> TokenStream {
   let fields = match ast.data {
     syn::Data::Struct(ref data) => &data.fields,
     _ => panic!(
-      "Error implementing FromExcel Macro for {}- this should be derived from a struct",
+      "Error implementing SubparTable Macro for {}- this should be derived from a struct",
       name
     ),
   };
@@ -205,7 +205,7 @@ fn parse_funcs(ast: &syn::DeriveInput) -> TokenStream {
             quote! {
               ExcelObject::Row(_) => #field_from_excel(excel_object),
               ExcelObject::Workbook(wb) => {
-                match wb.get_sheet(#quoted_name.to_string()) {
+                match wb.read_sheet(#quoted_name.to_string()) {
                   Ok(sheet) => Vec::<#vec_type>::from_excel(&ExcelObject::Sheet(sheet)),
                   Err(_) => panic!("Could not open the workbook for  {}", #quoted_name),
                 }
@@ -240,7 +240,7 @@ fn parse_funcs(ast: &syn::DeriveInput) -> TokenStream {
 
 // TODO: Look ahead? This doubles code since the branching is based upon children that we don't
 //       know about yet
-#[proc_macro_derive(FromExcel, attributes(subpar))]
+#[proc_macro_derive(SubparTable, attributes(subpar))]
 pub fn from_sheet(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
   let ast = parse_macro_input!(input as DeriveInput);
   let name = &ast.ident;
@@ -257,10 +257,9 @@ pub fn from_sheet(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
   // loop worksheet - get row
   let gen = quote! {
-    impl FromExcel for #name {
+    impl SubparTable for #name {
       fn from_excel(excel_object: &ExcelObject) -> Result<#name, SubparError> {
         #parse_funcs
-
         #return_obj
       }
 

@@ -5,7 +5,7 @@ authors = ["Dave Fogelson <dfogelson@fishheadlabs.com>"]
 license = "MIT"
 edition = "2018"
 include = ["Cargo.toml", "src/*.rs", "crates-io.md", "README.md", "LICENSE-MIT"]
-description = "A set of traits and derives for (de)serializing excel spreadsheets using calamine"
+description = "A set of traits and derives for working with tabular workbooks. It currently works read-only with excel and RW with google sheets and CSV. Currently being built for explicit use in the Process Foundry"
 
 
 [dependencies]
