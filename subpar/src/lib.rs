@@ -27,10 +27,12 @@ pub enum SubparError {
   FloatParseError(String),
   ReadOnly(String),
   UnknownColumn(String),
+  UnknownSheet(String),
   UnexpectedError(String),
   ExcelError(String),
   SheetsError(String),
   CSVError(String),
+  WorkbookMismatch(String),
 }
 
 /// A simple trait defining the functions needing to be implemented for each type of configuration
@@ -42,6 +44,7 @@ pub enum SubparError {
 pub trait MetaWorkbook {
   fn new(config: &WorkbookConfig) -> Result<Workbook, SubparError>;
   fn open(config: &WorkbookConfig) -> Result<Workbook, SubparError>;
+  fn read_metadata(config: &WorkbookConfig) -> Result<WorkbookMetadata, SubparError>;
   fn read_sheet(&self, sheet_name: String) -> Result<Sheet, SubparError>;
   // write_sheet(&self)
   // fn insert_row(&self, sheet_name: String, row_number: i32)
@@ -67,7 +70,6 @@ pub enum WorkbookConfig {
   CSV(CsvConfig),
 }
 
-// TODO: Should the params be validated at runtime?
 impl WorkbookConfig {
   /// Get a configuration item for a local Excel workbook
   ///
@@ -95,13 +97,14 @@ impl WorkbookConfig {
   }
 }
 
-#[derive(Debug)]
-pub enum WorkbookWrapper {
-  Unopened,
-  Csv,
-  Excel(excel::ExcelWorkbook),
-  Sheets, //(api: WrapiApi),
-}
+// #[derive(Debug)]
+// pub enum WorkbookWrapper {
+//   Unopened,
+//   Error(SubparError),
+//   Csv,
+//   Excel,
+//   Sheets, //(api: WrapiApi),
+// }
 
 /// The data type of the cell. Everything is kept in strings since I expect it to be parsed later
 /// using the from_cell/to_cell macros
@@ -134,19 +137,44 @@ pub struct Sheet {
 /// A place to store generic information about the workbook.
 /// This is needed for items like CSV where row/column information disappears after it is read
 #[derive(Clone, Debug)]
-struct WorkbookMetadata {
-  // Sheet Map
-// HeaderMap
-// Last Modified
+pub struct WorkbookMetadata {
+  sheet_map: std::collections::HashMap<String, (usize, usize)>,
+  last_accessed: chrono::DateTime<Utc>,
 }
 
 //
 #[derive(Debug)]
 pub struct Workbook {
-  _metadata: WorkbookMetadata,
+  metadata: WorkbookMetadata,
   config: WorkbookConfig,
-  workbook: WorkbookWrapper,
+  // workbook: WorkbookWrapper,
 }
+
+// Custom cloning since calamine doesn't implement it for the reader
+// impl Clone for Workbook {
+//   fn clone(&self) -> Self {
+//     Workbook {
+//       _metadata: self._metadata.clone(),
+//       config: self.config.clone(),
+//       workbook: match &self.workbook {
+//         WorkbookWrapper::Error(x) => WorkbookWrapper::Error(x.clone()),
+//         WorkbookWrapper::Unopened => WorkbookWrapper::Unopened,
+//         WorkbookWrapper::Csv => WorkbookWrapper::Csv,
+//         WorkbookWrapper::Sheets => WorkbookWrapper::Sheets,
+//         WorkbookWrapper::Excel => match self.config.clone() {
+//           WorkbookConfig::Excel(conf) => match excel::ExcelWorkbook::open(conf.path.clone()) {
+//             Ok(workbook) => WorkbookWrapper::Excel,
+//             Err(err) => WorkbookWrapper::Error(err),
+//           },
+//           x => WorkbookWrapper::Error(SubparError::WorkbookMismatch(format!(
+//             "Attempted to clone an excel workbook but didn't have an excel config: {:#?}",
+//             x
+//           ))),
+//         },
+//       },
+//     }
+//   }
+// }
 
 // Just for Copy/Paste
 // match self {
@@ -162,38 +190,46 @@ impl MetaWorkbook for Workbook {
       WorkbookConfig::Excel(_) => Err(SubparError::ReadOnly(
         "Excel workbooks cannot be created, as they are currently read-only".to_string(),
       )),
-      _ => Ok(Workbook {
-        // This needs to be derived by SubparTable
-        _metadata: WorkbookMetadata {},
-        config: config.clone(),
-        workbook: WorkbookWrapper::Unopened,
-      }),
+      _ => unimplemented!(),
     }
   }
 
-  /// Open an existing workbook
-  fn open(config: &WorkbookConfig) -> Result<Workbook, SubparError> {
-    // Reread the metadata if last modified has changed since the last time we changed
-    // match self.workbook {
-    // WorkbookWrapper::Unopened =>
+  fn read_metadata(config: &WorkbookConfig) -> Result<WorkbookMetadata, SubparError> {
     match config {
-      WorkbookConfig::Excel(_conf) => unimplemented!(),
+      WorkbookConfig::Excel(conf) => excel::ExcelWorkbook::read_metadata(conf),
       WorkbookConfig::GoogleSheets(_conf) => unimplemented!(),
       WorkbookConfig::CSV(_conf) => unimplemented!(),
     }
   }
 
+  /// Open an existing workbook
+  fn open(config: &WorkbookConfig) -> Result<Workbook, SubparError> {
+    let metadata = Workbook::read_metadata(&config)?;
+    Ok(Workbook {
+      metadata: metadata,
+      config: config.clone(),
+    })
+  }
+
   // Read the worksheet
   fn read_sheet(&self, sheet_name: String) -> Result<Sheet, SubparError> {
-    match &self.workbook {
-      WorkbookWrapper::Unopened => unimplemented!(),
-      WorkbookWrapper::Excel(wb) => unimplemented!(),
-      WorkbookWrapper::Sheets => unimplemented!(),
-      WorkbookWrapper::Csv => unimplemented!(),
+    // sheet in metadata?
+    // refresh metadata if not
+    match self.metadata.sheet_map.get(&sheet_name) {
+      None => Err(SubparError::UnknownSheet(format!(
+        "The workbook does not contain a sheet named '{}'. Possible options: {:#?}",
+        sheet_name, self.metadata.sheet_map
+      ))),
+      Some(_) => match &self.config {
+        WorkbookConfig::Excel(conf) => {
+          excel::ExcelWorkbook::read_sheet(conf.clone(), sheet_name.clone())
+        }
+        WorkbookConfig::GoogleSheets(_conf) => unimplemented!(),
+        WorkbookConfig::CSV(_conf) => unimplemented!(),
+      },
     }
   }
 }
-
 /// Wrappers for the various types of Excel Resources so we can pass them around more easily
 ///
 /// This allows us to generically iterate through the conversions
@@ -425,8 +461,8 @@ pub fn cell_csv_to_vec(_cell: Cell) -> Result<Vec<String>, SubparError> {
 /// Wrappers for the various types of Excel Resources so we can pass them around more easily
 ///
 /// This allows us to generically iterate through the conversions
-impl ExcelObject {
-  pub fn get_sheet<'a>(&'a self, sheet_name: String) -> Result<Self, SubparError> {
+impl<'a> ExcelObject {
+  pub fn get_sheet(&'a self, sheet_name: String) -> Result<Self, SubparError> {
     match self {
       ExcelObject::Workbook(wb) => Ok(ExcelObject::Sheet(
         wb.read_sheet(sheet_name).expect("Could not get sheet"),
@@ -437,7 +473,7 @@ impl ExcelObject {
     }
   }
 
-  pub fn unwrap_cell<'a>(&'a self) -> Result<Cell, SubparError> {
+  pub fn unwrap_cell(&'a self) -> Result<Cell, SubparError> {
     match self {
       ExcelObject::Cell(cell) => Ok(cell.clone()),
       _ => Err(SubparError::IncorrectExcelObject(
@@ -446,7 +482,7 @@ impl ExcelObject {
     }
   }
 
-  pub fn unwrap_row<'a>(&'a self) -> Result<HashMap<String, Cell>, SubparError> {
+  pub fn unwrap_row(&'a self) -> Result<HashMap<String, Cell>, SubparError> {
     match self {
       ExcelObject::Row(row) => Ok(row.clone()),
       _ => Err(SubparError::IncorrectExcelObject(

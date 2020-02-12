@@ -77,21 +77,16 @@ pub fn cell_csv_to_vec(wrapped: &ExcelObject) -> Result<Vec<String>, SubparError
       }
       x => panic!("The cell value must be a string. Received {:#?}", x),
     },
-    Some(x) => panic!(format!(
-      "\n!!! Cannot turn {:?} into a Vec<String> for Payment",
-      x
-    )),
-    None => panic!(format!(
-      "Could not find a column named payment in cell_csv_to_vec"
-    )),
   }
 }
 
 #[test]
 fn test_ctx() {
   // Test Excel
-  let excel_config =
-    subpar::WorkbookConfig::new_excel_config("../subpar_test/data/test_db.xlsx".to_string());
+  let excel_config = subpar::WorkbookConfig::new_excel_config(
+    "/home/dfogelson/Downloads/Submissions_Log_2019-07.xlsx".to_string(),
+  );
+  // subpar::WorkbookConfig::new_excel_config("../subpar_test/data/test_db.xlsx".to_string());
   let wb = subpar::Workbook::open(&excel_config).expect("Failed opening the excel workbook");
 
   let db = DB::from_excel(&ExcelObject::Workbook(wb));
