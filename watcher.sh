@@ -2,11 +2,12 @@
 
 
 export RUST_BACKTRACE=0;
+export RUST_LOG=debug;
 
 
 function rebuild_invoicer {
   echo "\n\n\n\n\n\n\t\t<-------------------------->\n\nBuilding and running the full test\n"
-  cargo test -- --nocapture
+  cargo test test_sheets -- --nocapture
   # cargo expand -p subpar --color=always | tail -n 100
 }
 
@@ -36,7 +37,14 @@ rebuild_invoicer
 while true; do
   command -v inotifywait > /dev/null 2>&1 || $(echo -e "InotifyWait not installed" && exit 1)
   echo -e $(pwd)
-  EVENT=$(inotifywait -r -e modify ./watcher.sh ./Cargo.toml ./subpar/* ./subpar_derive/* ./subpar_test/*)
+  EVENT=$(inotifywait -r -e modify \
+    ./watcher.sh \
+    ./Cargo.toml \
+    ./subpar/* \
+    ./subpar_derive/* \
+    ./subpar_test/* \
+    ../gappi/sheets_db/* \
+    )
   FILE_PATH=${EVENT/${modify}/}
   # echo -e "\nReceived event on file: '${FILE_PATH}'"
 
@@ -47,7 +55,7 @@ while true; do
     sleep 1
     exit 0
 
-  elif [[ $FILE_PATH =~ "^./Cargo.toml$" ]]; then
+  elif [[ $FILE_PATH =~ "./Cargo.toml$" ]]; then
     rebuild_invoicer
 
   elif [[ $FILE_PATH =~ "^./.+.rs$" ]]; then

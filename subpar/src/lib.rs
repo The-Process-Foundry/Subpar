@@ -1,8 +1,9 @@
 /*! Subpar - A Tabular Data manager
 
-TODO: Break CSV, Excel and Sheets into separate modules
-
+Some macros to make using excel, google sheets and CSV easier.
 !*/
+
+use log::{debug, info};
 
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use std::collections::HashMap;
@@ -11,29 +12,11 @@ use std::collections::HashMap;
 pub use subpar_derive::SubparTable;
 
 pub mod common;
+pub mod errors;
 pub mod excel;
+pub mod sheets;
 
-/// The full set of exceptions that can be raised at any step in this process
-#[derive(Debug, Clone)]
-pub enum SubparError {
-  EmptyWorksheet(String),
-  IncorrectExcelObject(String),
-  InvalidCellType(String),
-  InvalidPath(String),
-  FileReadOnly(String),
-  NotFound(String),
-  NotImplemented(String),
-  NullValue(String),
-  FloatParseError(String),
-  ReadOnly(String),
-  UnknownColumn(String),
-  UnknownSheet(String),
-  UnexpectedError(String),
-  ExcelError(String),
-  SheetsError(String),
-  CSVError(String),
-  WorkbookMismatch(String),
-}
+pub use errors::SubparError;
 
 /// A simple trait defining the functions needing to be implemented for each type of configuration
 // pub trait WorkbookConfig<SubClass = Self> {
@@ -58,15 +41,9 @@ pub struct CsvConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct SheetsConfig {
-  workbook_id: Option<String>,
-  credential_path: String,
-}
-
-#[derive(Debug, Clone)]
 pub enum WorkbookConfig {
   Excel(excel::ExcelConfig),
-  GoogleSheets(SheetsConfig),
+  GoogleSheets(sheets::SheetsConfig),
   CSV(CsvConfig),
 }
 
@@ -89,11 +66,12 @@ impl WorkbookConfig {
   ///   be a new workbook created
   /// * `path` - The path to the service account credentials. This can be looked up and downloaded via
   ///
-  pub fn new_sheets_config(workbook_id: Option<String>, path: String) -> WorkbookConfig {
-    WorkbookConfig::GoogleSheets(SheetsConfig {
-      workbook_id: workbook_id,
-      credential_path: path,
-    })
+  pub fn new_sheets_config(
+    workbook_id: Option<String>,
+    path: String,
+    user_name: String,
+  ) -> WorkbookConfig {
+    WorkbookConfig::GoogleSheets(sheets::SheetsConfig::new(workbook_id, path, user_name))
   }
 }
 
@@ -197,7 +175,7 @@ impl MetaWorkbook for Workbook {
   fn read_metadata(config: &WorkbookConfig) -> Result<WorkbookMetadata, SubparError> {
     match config {
       WorkbookConfig::Excel(conf) => excel::ExcelWorkbook::read_metadata(conf),
-      WorkbookConfig::GoogleSheets(_conf) => unimplemented!(),
+      WorkbookConfig::GoogleSheets(conf) => sheets::SheetsWorkbook::read_metadata(conf),
       WorkbookConfig::CSV(_conf) => unimplemented!(),
     }
   }

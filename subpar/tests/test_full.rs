@@ -1,7 +1,34 @@
 extern crate subpar;
 
+use log::{debug, info};
+
 use chrono::NaiveDateTime;
 use subpar::{ExcelObject, MetaWorkbook, SubparError, SubparTable};
+
+// Convert a cell to a json string
+pub fn cell_csv_to_vec(wrapped: &ExcelObject) -> Result<Vec<String>, SubparError> {
+  let row = wrapped
+    .unwrap_row()
+    .expect("There was an error unwrapping the object in cell_csv_to_vec");
+  match row.get("payment") {
+    None => panic!("No cell named payment in the row"),
+    Some(cell) => match &cell.data {
+      subpar::CellType::String(value) => {
+        println!("The cell is: {:#?}", value);
+        Ok(
+          value
+            .trim_matches(|c| c == '[' || c == ']')
+            .replace(" ", "")
+            .split(",")
+            .filter(|&x| x != "")
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+        )
+      }
+      x => panic!("The cell value must be a string. Received {:#?}", x),
+    },
+  }
+}
 
 /** Submission
  *
@@ -55,31 +82,6 @@ pub struct DB {
   // pub payment: Vec<Payment>,
 }
 
-// Convert a cell to a json string
-pub fn cell_csv_to_vec(wrapped: &ExcelObject) -> Result<Vec<String>, SubparError> {
-  let row = wrapped
-    .unwrap_row()
-    .expect("There was an error unwrapping the object in cell_csv_to_vec");
-  match row.get("payment") {
-    None => panic!("No cell named payment in the row"),
-    Some(cell) => match &cell.data {
-      subpar::CellType::String(value) => {
-        println!("The cell is: {:#?}", value);
-        Ok(
-          value
-            .trim_matches(|c| c == '[' || c == ']')
-            .replace(" ", "")
-            .split(",")
-            .filter(|&x| x != "")
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>(),
-        )
-      }
-      x => panic!("The cell value must be a string. Received {:#?}", x),
-    },
-  }
-}
-
 #[test]
 fn test_ctx() {
   // Test Excel
@@ -101,4 +103,24 @@ fn test_ctx() {
 
   // let db = DB::load_workbook(wb);
   // println!("db:\n{:#?}", db);
+}
+
+#[test]
+fn test_sheets() {
+  env_logger::init();
+  // Read the submissions tab of the log using subpar
+  let sheet_id = String::from("1kwQgjicMgKVV1aZ1oStIjpahQLDronaqzkTKdD-paI0");
+  let db_conf = subpar::WorkbookConfig::new_sheets_config(
+    Some(sheet_id.clone()),
+    "/home/dfogelson/FishheadLabs/subpar/subpar_test/data/service_acct.json".to_string(),
+    "fhl@landfillinc.com".to_string(),
+  );
+
+  debug!("db_conf:\n{:#?}", db_conf);
+  let wb = subpar::Workbook::open(&db_conf).expect("Failed opening the google sheets workbook");
+  debug!("wb:\n{:#?}", wb);
+
+  // let db = DB::load_db().expect("Failed to open the db");
+
+  // debug!("db:\n{:#?}", db);
 }
