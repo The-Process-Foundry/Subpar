@@ -1,6 +1,6 @@
 extern crate subpar;
 
-use log::{debug, info};
+use log::debug;
 
 use chrono::NaiveDateTime;
 use subpar::{ExcelObject, MetaWorkbook, SubparError, SubparTable};
@@ -60,7 +60,7 @@ pub struct Submission {
   #[subpar(rename = "Client cost")]
   price: Option<f64>,
   // formula: Option<String>,
-  #[subpar(rename = "Invoice Number")]
+  #[subpar(rename = "Invoice number")]
   invoice_number: Option<i32>,
   #[subpar(rename = "Date Received")]
   received: NaiveDateTime, // TODO: Convert this to a chrono::datetime
@@ -93,16 +93,6 @@ fn test_ctx() {
 
   let db = DB::from_excel(&ExcelObject::Workbook(wb));
   println!("db:\n{:#?}", db);
-
-  // Test Sheets
-  // let sheets_config = subpar::WorkbookConfig::new_sheets_config(
-  //   "1kwQgjicMgKVV1aZ1oStIjpahQLDronaqzkTKdD-paI0",
-  //   "/home/dfogelson/FishheadLabs/TheProcessFoundry/service_acct.json".to_string(),
-  // );
-  // let wb = SubparWorkbook::open(sheets_config);
-
-  // let db = DB::load_workbook(wb);
-  // println!("db:\n{:#?}", db);
 }
 
 #[test]
@@ -117,8 +107,10 @@ fn test_sheets() {
   );
 
   debug!("db_conf:\n{:#?}", db_conf);
+
   let wb = subpar::Workbook::open(&db_conf).expect("Failed opening the google sheets workbook");
-  debug!("wb:\n{:#?}", wb);
+  let db = DB::from_excel(&ExcelObject::Workbook(wb));
+  println!("db:\n{:#?}", db);
 
   // let db = DB::load_db().expect("Failed to open the db");
 

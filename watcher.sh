@@ -2,7 +2,7 @@
 
 
 export RUST_BACKTRACE=0;
-export RUST_LOG=debug;
+export RUST_LOG=warn,subpar=debug,wrapi=info,gappi=info;
 
 
 function rebuild_invoicer {
@@ -58,7 +58,7 @@ while true; do
   elif [[ $FILE_PATH =~ "./Cargo.toml$" ]]; then
     rebuild_invoicer
 
-  elif [[ $FILE_PATH =~ "^./.+.rs$" ]]; then
+  elif [[ $FILE_PATH =~ "^..?/.+.rs$" ]]; then
     rebuild_invoicer
 
   elif [[ $FILE_PATH =~ "^./.+.xlsx$" ]]; then

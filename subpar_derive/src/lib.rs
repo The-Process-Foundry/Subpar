@@ -88,7 +88,10 @@ fn fields_to_struct(fields: &syn::Fields) -> TokenStream {
         quote! {
           #name: match #name {
             Ok(x) => x,
-            Err(err) => panic!(format!("Error processing '{}':\n{:#?}", #lit_name, err)),
+            Err(err) => {
+              let msg = format!("Error processing '{}':\n{:#?}", #lit_name, err);
+              Err(msg)?
+            }
           }
         }
       });
@@ -207,7 +210,11 @@ fn parse_funcs(ast: &syn::DeriveInput) -> TokenStream {
               ExcelObject::Workbook(wb) => {
                 match wb.read_sheet(#quoted_name.to_string()) {
                   Ok(sheet) => Vec::<#vec_type>::from_excel(&ExcelObject::Sheet(sheet)),
-                  Err(_) => panic!("Could not open the workbook for  {}", #quoted_name),
+                  Err(x) =>
+                    panic!(
+                      "Could not open the worksheet '{}' in the workbook. Received error:\n{:#?}",
+                       #quoted_name, x
+                    ),
                 }
               },
             }

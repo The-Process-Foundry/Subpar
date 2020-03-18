@@ -3,7 +3,7 @@
 Some macros to make using excel, google sheets and CSV easier.
 !*/
 
-use log::{debug, info};
+use log::error;
 
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use std::collections::HashMap;
@@ -202,7 +202,10 @@ impl MetaWorkbook for Workbook {
         WorkbookConfig::Excel(conf) => {
           excel::ExcelWorkbook::read_sheet(conf.clone(), sheet_name.clone())
         }
-        WorkbookConfig::GoogleSheets(_conf) => unimplemented!(),
+        WorkbookConfig::GoogleSheets(conf) => {
+          // unimplemented!(),
+          sheets::SheetsWorkbook::read_sheet(conf.clone(), sheet_name.clone())
+        }
         WorkbookConfig::CSV(_conf) => unimplemented!(),
       },
     }
@@ -219,7 +222,7 @@ pub enum ExcelObject {
 }
 
 /// Convert a row from a given table into the given struct
-pub trait SubparTable<SubClass = Self> {
+pub trait SubparTable<SubClass = Self>: std::fmt::Debug + std::clone::Clone {
   fn from_excel(from_obj: &ExcelObject) -> Result<SubClass, SubparError>;
   fn get_object_name() -> String;
 }
@@ -236,9 +239,20 @@ where
     match excel_object {
       ExcelObject::Sheet(sheet) => {
         let mut result: Vec<U> = Vec::new();
-        for row in sheet.data.clone() {
-          let value = U::from_excel(&to_row(row, &sheet.header_map)).expect("Error parsing row");
-          result.push(value);
+        for (i, row) in sheet.data.clone().iter().enumerate() {
+          let value = U::from_excel(&to_row(row.clone(), &sheet.header_map));
+          match value.clone() {
+            Ok(x) => result.push(x),
+            err => {
+              // TODO: Return the key instead of all the values
+              let msg = format!(
+                "Error parsing row number {}: \n{:#?}\nValues - {:#?}",
+                i, err, row
+              );
+              log::warn!("{}", msg);
+              value?;
+            }
+          }
         }
         Ok(result)
       }
@@ -261,7 +275,10 @@ where
         CellType::Null => Ok(None),
         _ => match U::from_excel(&excel_object.clone()) {
           Ok(value) => Ok(Some(value)),
-          Err(err) => Err(err),
+          Err(err) => match err {
+            SubparError::NullValue(_) => Ok(None),
+            _ => Err(err),
+          },
         },
       },
       _ => panic!("Tried to parse an optional object from a non-cell ExcelObject"),
@@ -298,6 +315,7 @@ impl SubparTable for String {
 
 impl SubparTable for NaiveDateTime {
   fn from_excel(excel_object: &ExcelObject) -> Result<NaiveDateTime, SubparError> {
+    // Excel sends back float and Google sheets is a string, so
     match f64::from_excel(excel_object) {
       Ok(excel_date) => {
         // https://github.com/SheetJS/js-xlsx/blob/3438923e5138f10de0aa70b35a8f56eedcfc320d/bits/20_jsutils.js#L34-L45
@@ -306,12 +324,49 @@ impl SubparTable for NaiveDateTime {
         // println!("The parsed date is {:?}", basedate + chrono::Duration::days(excel_date as i64 + 31));
         Ok(basedate + chrono::Duration::days(excel_date as i64 + 31))
       }
-      Err(err) => Err(err),
+      Err(err) => {
+        let cell = excel_object.unwrap_cell().unwrap().data;
+        match cell {
+          CellType::String(value) => {
+            // assuming the default of m/d/y
+            if value.len() == 0 {
+              Err(SubparError::NullValue(
+                "Received an empty DateTime to parse".to_string(),
+              ))?
+            }
+            let mut tokens: Vec<Result<u32, _>> =
+              value.split("/").map(|token| token.parse()).collect();
+            match tokens.len() {
+              3 => {
+                let year = tokens.pop().unwrap()?;
+                let day = tokens.pop().unwrap()?;
+                let month = tokens.pop().unwrap()?;
+                let y4 = match (year < 30, year < 100) {
+                  (true, _) => 2000 + year,
+                  (_, true) => 1900 + year,
+                  (false, false) => year,
+                };
+
+                Ok(Utc.ymd(y4 as i32, month, day).and_hms(0, 0, 0).naive_utc())
+              }
+              _ => {
+                let msg = format!(
+                  "could not format '{:#?}' into a date formatted as m/d/y.",
+                  value
+                );
+                log::error!("{}", msg);
+                Err(SubparError::ParsingError(msg))?
+              }
+            }
+          }
+          _ => Err(err)?,
+        }
+      }
     }
   }
 
   fn get_object_name() -> String {
-    panic!("Tried get_object_name for an Option cell, which makes no sense")
+    panic!("Tried get_object_name for a DateTime cell, which makes no sense")
   }
 }
 
@@ -483,10 +538,16 @@ fn to_row(raw: Vec<Cell>, headers: &HashMap<String, usize>) -> ExcelObject {
 
 pub fn get_cell(excel_object: ExcelObject, cell_name: String) -> Result<ExcelObject, SubparError> {
   match excel_object {
-    ExcelObject::Row(row) => match row.get(&cell_name.to_ascii_lowercase()) {
+    ExcelObject::Row(row) => match row.get(&cell_name) {
       Some(value) => Ok(ExcelObject::Cell(value.clone())),
       None => {
-        println!("\n\n!!!!\nFailed column lookup: {:#?}", row);
+        let mut keys: Vec<String> = row.keys().into_iter().map(|key| key.clone()).collect();
+        keys.sort();
+        log::debug!(
+          "\n\n!!!!\nFailed column lookup '{}' in: {:#?}",
+          &cell_name,
+          keys,
+        );
         Err(SubparError::UnknownColumn(
           String::from("Could not find column named '") + &cell_name + "'",
         ))
