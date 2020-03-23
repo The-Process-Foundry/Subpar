@@ -46,6 +46,12 @@ impl From<std::num::ParseIntError> for SubparError {
   }
 }
 
+impl From<std::num::ParseFloatError> for SubparError {
+  fn from(err: std::num::ParseFloatError) -> SubparError {
+    SubparError::ParsingError(err.to_string())
+  }
+}
+
 impl From<std::string::String> for SubparError {
   fn from(err: std::string::String) -> SubparError {
     SubparError::GenericError(err)

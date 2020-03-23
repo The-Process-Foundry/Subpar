@@ -1,3 +1,4 @@
+#[cfg(test)]
 extern crate subpar;
 
 use log::debug;
@@ -73,13 +74,60 @@ pub struct Submission {
   // payment_notes: Option<String>,
 }
 
-// #[derive(Debug, Clone)]
+#[derive(Clone, Debug, SubparTable)]
+pub struct Invoice {
+  #[subpar(rename = "Invoice ID")]
+  guid: String,
+  #[subpar(rename = "Organization")]
+  organization: String,
+  #[subpar(rename = "Submissions")]
+  submissions: String,
+  #[subpar(rename = "Date Created")]
+  created_on: NaiveDateTime,
+}
+
+impl Invoice {
+  fn get_key_hash(&self) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    map.insert("guid".to_string(), self.guid.clone());
+    map
+  }
+}
+
 #[derive(Debug, Clone, SubparTable)]
 pub struct DB {
   // pub sent_messages: Vec<SentMessage>,
   pub submissions: Vec<Submission>,
+  pub invoices: Vec<Invoice>,
   // #[subpar(rename="payments")]
   // pub payment: Vec<Payment>,
+}
+
+impl DB {
+  pub fn upsert_invoice(workbook: &subpar::Workbook, invoice: &Invoice) -> Result<(), SubparError> {
+    let key = invoice.get_key_hash();
+    debug!("Upsert Key: {:#?}", key);
+    // Make DataFilter call
+
+    debug!("The Workbook: {:#?}", workbook);
+
+    // match exists {
+    // Some(existing) => Update call
+    // None => Append Call
+    // }
+    unimplemented!()
+  }
+}
+
+impl std::fmt::Display for DB {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "\tsubmissions: {}\n\tinvoices: {}",
+      self.submissions.len(),
+      self.invoices.len()
+    )
+  }
 }
 
 #[test]
@@ -92,7 +140,7 @@ fn test_ctx() {
   let wb = subpar::Workbook::open(&excel_config).expect("Failed opening the excel workbook");
 
   let db = DB::from_excel(&ExcelObject::Workbook(wb));
-  println!("db:\n{:#?}", db);
+  println!("db submissions:\n{:#?}", db.unwrap().submissions.len());
 }
 
 #[test]
@@ -109,8 +157,26 @@ fn test_sheets() {
   debug!("db_conf:\n{:#?}", db_conf);
 
   let wb = subpar::Workbook::open(&db_conf).expect("Failed opening the google sheets workbook");
-  let db = DB::from_excel(&ExcelObject::Workbook(wb));
-  println!("db:\n{:#?}", db);
+  // let db = DB::from_excel(&ExcelObject::Workbook(wb.clone())).unwrap();
+  // println!("Done loading DB:\n{}", db);
+
+  // append a new invoice
+  let mut invoice = Invoice {
+    guid: "Live Append Test".to_string(),
+    organization: "FHL".to_string(),
+    submissions: "[\"F20-4\"]".to_string(),
+    created_on: chrono::Utc::now().naive_utc(),
+  };
+
+  let result = DB::upsert_invoice(&wb, &invoice);
+  debug!("The result of the append: {:#?}", result);
+
+  // update the invoice
+  invoice.submissions = "[\"F20-6\"]".to_string();
+  let result = DB::upsert_invoice(&wb, &invoice);
+  debug!("The result of the update: {:#?}", result);
+
+  // reread the database
 
   // let db = DB::load_db().expect("Failed to open the db");
 

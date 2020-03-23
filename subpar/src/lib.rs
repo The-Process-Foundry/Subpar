@@ -3,8 +3,6 @@
 Some macros to make using excel, google sheets and CSV easier.
 !*/
 
-use log::error;
-
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use std::collections::HashMap;
 
@@ -121,7 +119,7 @@ pub struct WorkbookMetadata {
 }
 
 //
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Workbook {
   metadata: WorkbookMetadata,
   config: WorkbookConfig,
@@ -225,6 +223,7 @@ pub enum ExcelObject {
 pub trait SubparTable<SubClass = Self>: std::fmt::Debug + std::clone::Clone {
   fn from_excel(from_obj: &ExcelObject) -> Result<SubClass, SubparError>;
   fn get_object_name() -> String;
+  // fn get_key_hash() -> HashMap<String, String>;
 }
 
 /// Special case - This is usually used for converting a Sheet into a range
@@ -233,8 +232,8 @@ where
   U: SubparTable,
 {
   fn from_excel(excel_object: &ExcelObject) -> Result<Vec<U>, SubparError> {
-    let sheet_name = U::get_object_name();
-    println!("In vec::<{}>::from_excel", sheet_name);
+    // let sheet_name = U::get_object_name();
+    // println!("In vec::<{}>::from_excel", sheet_name);
 
     match excel_object {
       ExcelObject::Sheet(sheet) => {
@@ -244,11 +243,8 @@ where
           match value.clone() {
             Ok(x) => result.push(x),
             err => {
-              // TODO: Return the key instead of all the values
-              let msg = format!(
-                "Error parsing row number {}: \n{:#?}\nValues - {:#?}",
-                i, err, row
-              );
+              // TODO: Return the key, not just the row number
+              let msg = format!("Error parsing row number {}: \n{:#?}", i, err);
               log::warn!("{}", msg);
               value?;
             }
@@ -376,7 +372,10 @@ impl SubparTable for f64 {
       ExcelObject::Cell(cell) => match &cell.data {
         CellType::String(value) => match value.parse::<f64>() {
           Ok(x) => Ok(x),
-          Err(err) => Err(SubparError::FloatParseError(format!("{:#?}", err))),
+          Err(_) => {
+            let cleaned = value.replace(',', "");
+            Ok(cleaned.parse::<f64>()?)
+          }
         },
         CellType::Number(value) => Ok(value.clone()),
         x => Err(SubparError::InvalidCellType(format!(
@@ -443,10 +442,17 @@ impl SubparTable for i32 {
   fn from_excel(excel_object: &ExcelObject) -> Result<i32, SubparError> {
     match excel_object {
       ExcelObject::Cell(cell) => match &cell.data {
-        CellType::String(value) => match value.parse::<i32>() {
-          Ok(x) => Ok(x),
-          Err(err) => Err(SubparError::FloatParseError(format!("{:#?}", err))),
-        },
+        CellType::String(value) => {
+          if value.len() == 0 {
+            Err(SubparError::NullValue(
+              "Received an empty string to parse into an i32".to_string(),
+            ))?
+          }
+          match value.parse::<i32>() {
+            Ok(x) => Ok(x),
+            Err(err) => Err(SubparError::FloatParseError(format!("{:#?}", err))),
+          }
+        }
         CellType::Number(value) => Ok(value.round() as i32),
         x => Err(SubparError::InvalidCellType(format!(
           "\n!!! Cannot turn {:?} into a i32",
@@ -527,8 +533,24 @@ impl<'a> ExcelObject {
 
 fn to_row(raw: Vec<Cell>, headers: &HashMap<String, usize>) -> ExcelObject {
   let mut row_data: HashMap<String, Cell> = HashMap::new();
+  let row_length = raw.len();
   for (key, i) in headers.iter() {
-    match row_data.insert(key.clone(), raw[*i].clone()) {
+    // Sheets does not return square ranges so we have to test that the row is actually long enough
+    let value = match *i >= row_length {
+      true => {
+        // log::debug!(
+        //   "Got a header longer than the length: {} >= {}",
+        //   i,
+        //   row_length
+        // );
+        Cell {
+          location: (raw[0].location.0, i.clone()),
+          data: CellType::Null,
+        }
+      }
+      false => raw[*i].clone(),
+    };
+    match row_data.insert(key.clone(), value) {
       None => (),
       Some(_) => panic!("Managed a duplicate entry in to_row. Should be impossible"),
     }

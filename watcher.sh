@@ -2,7 +2,7 @@
 
 
 export RUST_BACKTRACE=0;
-export RUST_LOG=warn,subpar=debug,wrapi=info,gappi=info;
+export RUST_LOG=warn,subpar=debug,wrapi=info,gappi=info,test=debug;
 
 
 function rebuild_invoicer {

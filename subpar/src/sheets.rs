@@ -59,7 +59,7 @@ impl SheetsWorkbook {
 
     let sheet = worksheet.get_sheet(sheet_name.clone())?;
     let value_range: &sheets_db::ValueRange = sheet.borrow();
-    debug!("Received data for range {}", value_range.range);
+    // debug!("Received data for range {:#?}", value_range.range);
     let mut rows = value_range.values.clone().into_iter();
     // Build the headers
     let mut lookup: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
