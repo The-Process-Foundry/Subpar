@@ -4,7 +4,7 @@ extern crate subpar;
 use log::debug;
 
 use chrono::NaiveDateTime;
-use subpar::{ExcelObject, MetaWorkbook, SubparError, SubparTable};
+use subpar::{to_row, ExcelObject, MetaWorkbook, SheetMetadata, SubparError, SubparTable};
 
 // Convert a cell to a json string
 pub fn cell_csv_to_vec(wrapped: &ExcelObject) -> Result<Vec<String>, SubparError> {
@@ -92,12 +92,25 @@ impl Invoice {
     map.insert("guid".to_string(), self.guid.clone());
     map
   }
+
+  fn get_key_string(&self) -> String {
+    let mut result = "".to_string();
+
+    let hash = self.get_key_hash();
+    let mut keys: Vec<String> = hash.keys().into_iter().map(|x| x.clone()).collect();
+    keys.sort();
+    for key in keys {
+      result.push_str("|");
+      result.push_str(&serde_json::to_string(hash.get(&key).unwrap()).unwrap()[..])
+    }
+    result
+  }
 }
 
 #[derive(Debug, Clone, SubparTable)]
 pub struct DB {
   // pub sent_messages: Vec<SentMessage>,
-  pub submissions: Vec<Submission>,
+  // pub submissions: Vec<Submission>,
   pub invoices: Vec<Invoice>,
   // #[subpar(rename="payments")]
   // pub payment: Vec<Payment>,
@@ -117,14 +130,78 @@ impl DB {
     // }
     unimplemented!()
   }
+
+  pub fn update_metadata(&self, workbook: &mut subpar::Workbook) -> Result<(), SubparError> {
+    debug!("Reconciling metadata");
+    let invoice_metadata: &SheetMetadata = match workbook.metadata.sheet_map.get("invoices") {
+      Some(metadata) => metadata,
+      None => Err(SubparError::NotFound(format!(
+        "Could not find metadata for {}",
+        "invoices"
+      )))?,
+    };
+
+    let mut existing = std::collections::HashMap::<String, String>::new();
+    for key in invoice_metadata.key_map.keys() {
+      existing.insert(key.clone(), key.clone());
+    }
+
+    let mut updates = std::collections::HashMap::<String, sheets_db::BatchUpdateRequestItem>::new();
+    let invoices = workbook.read_sheet("invoices".to_string())?;
+    let sheet_id = invoice_metadata.sheet_id.clone();
+
+    for row in invoices.data {
+      let invoice = Invoice::from_excel(&to_row(row.clone(), &invoices.header_map))?;
+      let key = invoice.get_key_string();
+      // println!("Checking Metadata on {:#?}:\n{:#?}", row[0].location, row);
+      match existing.remove(&key) {
+        Some(value) => {
+          println!("Found key {} at row {}", key, value);
+          // verify
+        }
+        None => {
+          debug!("No key found for {}. inserting", key);
+          let developer_metadata = sheets_db::DeveloperMetadata {
+            id: None,
+            key: "RowKey".to_string(),
+            value: key.clone(),
+            visibility: sheets_db::DeveloperMetadataVisibility::Project,
+            location: sheets_db::DeveloperMetadataLocation {
+              location_type: sheets_db::DeveloperMetadataLocationType::Row,
+              value: sheets_db::DeveloperMetadataLocationValue::Range(sheets_db::DimensionRange {
+                sheet_id,
+                dimension: sheets_db::Dimension::Rows,
+                start_index: 1,
+                end_index: 1,
+              }),
+            },
+          };
+          updates.insert(
+            key.clone(),
+            sheets_db::BatchUpdateRequestItem::CreateDeveloperMetadata(
+              sheets_db::CreateDeveloperMetadataRequest { developer_metadata },
+            ),
+          );
+        }
+      }
+    }
+
+    // let batch_update = sheets_db.BatchUpdateRequest {
+    //   sheet_id: workbook.config.sheet_id.clone(),
+    //   requests:
+    // };
+
+    debug!("Running updates on: {:#?}", updates);
+    unimplemented!("Update_metadata")
+  }
 }
 
 impl std::fmt::Display for DB {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(
       f,
-      "\tsubmissions: {}\n\tinvoices: {}",
-      self.submissions.len(),
+      "\tsubmissions: \n\tinvoices: {}",
+      // self.submissions.len(),
       self.invoices.len()
     )
   }
@@ -140,41 +217,52 @@ fn test_ctx() {
   let wb = subpar::Workbook::open(&excel_config).expect("Failed opening the excel workbook");
 
   let db = DB::from_excel(&ExcelObject::Workbook(wb));
-  println!("db submissions:\n{:#?}", db.unwrap().submissions.len());
+  println!("db submissions:\n{:#?}", db);
 }
 
 #[test]
 fn test_sheets() {
   env_logger::init();
   // Read the submissions tab of the log using subpar
-  let sheet_id = String::from("1kwQgjicMgKVV1aZ1oStIjpahQLDronaqzkTKdD-paI0");
+  // let sheet_id = String::from("1kwQgjicMgKVV1aZ1oStIjpahQLDronaqzkTKdD-paI0");
+  let sheet_id = String::from("1mQgyqcCYBqyfFmHZB6q5J_L2FQSQ5ppO5hxo_81utZ0");
   let db_conf = subpar::WorkbookConfig::new_sheets_config(
     Some(sheet_id.clone()),
-    "/home/dfogelson/FishheadLabs/subpar/subpar_test/data/service_acct.json".to_string(),
+    "/home/dfogelson/fhl_service_acct.json".to_string(),
     "fhl@landfillinc.com".to_string(),
   );
 
   debug!("db_conf:\n{:#?}", db_conf);
 
   let wb = subpar::Workbook::open(&db_conf).expect("Failed opening the google sheets workbook");
-  // let db = DB::from_excel(&ExcelObject::Workbook(wb.clone())).unwrap();
-  // println!("Done loading DB:\n{}", db);
+  let db = DB::from_excel(&ExcelObject::Workbook(wb.clone())).unwrap();
+  println!("Done loading DB:\n{}", db);
+
+  // let result = db
+  // .update_metadata(&mut wb)
+  // .expect("Error updating the metadata");
+
+  // List all dev metadata in hash
+
+  // Iterate each row
+
+  // if
 
   // append a new invoice
-  let mut invoice = Invoice {
-    guid: "Live Append Test".to_string(),
-    organization: "FHL".to_string(),
-    submissions: "[\"F20-4\"]".to_string(),
-    created_on: chrono::Utc::now().naive_utc(),
-  };
+  // let mut invoice = Invoice {
+  //   guid: "Live Append Test".to_string(),
+  //   organization: "FHL".to_string(),
+  //   submissions: "[\"F20-4\"]".to_string(),
+  //   created_on: chrono::Utc::now().naive_utc(),
+  // };
 
-  let result = DB::upsert_invoice(&wb, &invoice);
-  debug!("The result of the append: {:#?}", result);
+  // let result = DB::upsert_invoice(&wb, &invoice);
+  // debug!("The result of the append: {:#?}", result);
 
   // update the invoice
-  invoice.submissions = "[\"F20-6\"]".to_string();
-  let result = DB::upsert_invoice(&wb, &invoice);
-  debug!("The result of the update: {:#?}", result);
+  // invoice.submissions = "[\"F20-6\"]".to_string();
+  // let result = DB::upsert_invoice(&wb, &invoice);
+  // debug!("The result of the update: {:#?}", result);
 
   // reread the database
 

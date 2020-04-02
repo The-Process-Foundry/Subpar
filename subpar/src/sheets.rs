@@ -31,18 +31,24 @@ impl SheetsWorkbook {
   }
 
   pub fn read_metadata(conf: &SheetsConfig) -> Result<super::WorkbookMetadata, SubparError> {
-    let mut sheets = std::collections::HashMap::<String, (usize, usize)>::new();
+    let mut sheets = std::collections::HashMap::new();
     let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), conf.workbook_id.clone().unwrap())?;
     for sheet_name in worksheet.list_sheets()?.iter() {
       let props = worksheet.get_sheet_properties(sheet_name.clone())?;
+      let range = (
+        props.grid_properties.row_count.clone() as usize,
+        props.grid_properties.column_count.clone() as usize,
+      );
 
-      debug!("worksheet.get_sheet_properties:\n{:#?}", props);
+      let key_map = std::collections::HashMap::new();
+      // debug!("worksheet.get_sheet_properties:\n{:#?}", props);\
       sheets.insert(
         sheet_name.clone(),
-        (
-          props.grid_properties.row_count.clone() as usize,
-          props.grid_properties.column_count.clone() as usize,
-        ),
+        super::SheetMetadata {
+          sheet_id: props.sheet_id.clone(),
+          range,
+          key_map,
+        },
       );
     }
 
@@ -54,8 +60,7 @@ impl SheetsWorkbook {
 
   pub fn read_sheet(conf: SheetsConfig, sheet_name: String) -> Result<super::Sheet, SubparError> {
     debug!("Reading the sheet named '{}'", sheet_name.clone());
-    let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), conf.workbook_id.clone().unwrap())
-      .expect("Error opening the worksheet");
+    let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), conf.workbook_id.clone().unwrap())?;
 
     let sheet = worksheet.get_sheet(sheet_name.clone())?;
     let value_range: &sheets_db::ValueRange = sheet.borrow();
@@ -124,7 +129,7 @@ impl std::fmt::Debug for SheetsWorkbook {
 }
 
 // Convert this to "impl From"
-fn to_cell_type(data: &sheets_db::Value) -> CellType {
+fn _to_cell_type(data: &sheets_db::Value) -> CellType {
   match data {
     sheets_db::Value::StringValue(string) => CellType::String(string.clone()),
     sheets_db::Value::Null => CellType::Null,

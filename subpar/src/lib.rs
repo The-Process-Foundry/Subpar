@@ -9,7 +9,7 @@ use std::collections::HashMap;
 #[doc(hidden)]
 pub use subpar_derive::SubparTable;
 
-pub mod common;
+// pub mod common;
 pub mod errors;
 pub mod excel;
 pub mod sheets;
@@ -27,6 +27,7 @@ pub trait MetaWorkbook {
   fn open(config: &WorkbookConfig) -> Result<Workbook, SubparError>;
   fn read_metadata(config: &WorkbookConfig) -> Result<WorkbookMetadata, SubparError>;
   fn read_sheet(&self, sheet_name: String) -> Result<Sheet, SubparError>;
+
   // write_sheet(&self)
   // fn insert_row(&self, sheet_name: String, row_number: i32)
   // fn update_row(&self, sheet_name: String, row_data)
@@ -105,23 +106,30 @@ pub struct Cell {
 
 #[derive(Clone, Debug)]
 pub struct Sheet {
-  header_map: std::collections::HashMap<String, usize>,
-  header_vec: Vec<String>,
-  data: Vec<Vec<Cell>>,
+  pub header_map: std::collections::HashMap<String, usize>,
+  pub header_vec: Vec<String>,
+  pub data: Vec<Vec<Cell>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SheetMetadata {
+  pub sheet_id: i64,
+  pub range: (usize, usize),
+  pub key_map: std::collections::HashMap<String, i32>,
 }
 
 /// A place to store generic information about the workbook.
 /// This is needed for items like CSV where row/column information disappears after it is read
 #[derive(Clone, Debug)]
 pub struct WorkbookMetadata {
-  sheet_map: std::collections::HashMap<String, (usize, usize)>,
-  last_accessed: chrono::DateTime<Utc>,
+  pub sheet_map: std::collections::HashMap<String, SheetMetadata>,
+  pub last_accessed: chrono::DateTime<Utc>,
 }
 
 //
 #[derive(Clone, Debug)]
 pub struct Workbook {
-  metadata: WorkbookMetadata,
+  pub metadata: WorkbookMetadata,
   config: WorkbookConfig,
   // workbook: WorkbookWrapper,
 }
@@ -201,7 +209,6 @@ impl MetaWorkbook for Workbook {
           excel::ExcelWorkbook::read_sheet(conf.clone(), sheet_name.clone())
         }
         WorkbookConfig::GoogleSheets(conf) => {
-          // unimplemented!(),
           sheets::SheetsWorkbook::read_sheet(conf.clone(), sheet_name.clone())
         }
         WorkbookConfig::CSV(_conf) => unimplemented!(),
@@ -373,6 +380,12 @@ impl SubparTable for f64 {
         CellType::String(value) => match value.parse::<f64>() {
           Ok(x) => Ok(x),
           Err(_) => {
+            match value.len() {
+              0 => Err(SubparError::NullValue(
+                "Cannot convert an empty string into an f64".to_string(),
+              ))?,
+              _ => (),
+            }
             let cleaned = value.replace(',', "");
             Ok(cleaned.parse::<f64>()?)
           }
@@ -531,7 +544,7 @@ impl<'a> ExcelObject {
   }
 }
 
-fn to_row(raw: Vec<Cell>, headers: &HashMap<String, usize>) -> ExcelObject {
+pub fn to_row(raw: Vec<Cell>, headers: &HashMap<String, usize>) -> ExcelObject {
   let mut row_data: HashMap<String, Cell> = HashMap::new();
   let row_length = raw.len();
   for (key, i) in headers.iter() {

@@ -14,7 +14,8 @@ chrono = "0.4.7"
 calamine = "0.15.5"
 log = "0.4.8"
 env_logger = "0.7.1"
+serde_json = "1.0.48"
 
-sheets_db = {path = "../../gappi/sheets_db"}
-wrapi = {path="../../wrapi"}
+sheets_db = {path = "../../Gappi/sheets_db"}
+wrapi = {path="../../Wrapi"}
 yup-oauth2 = {path="../../yup-oauth2"}

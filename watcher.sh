@@ -43,7 +43,7 @@ while true; do
     ./subpar/* \
     ./subpar_derive/* \
     ./subpar_test/* \
-    ../gappi/sheets_db/* \
+    ../Gappi/sheets_db/* \
     )
   FILE_PATH=${EVENT/${modify}/}
   # echo -e "\nReceived event on file: '${FILE_PATH}'"

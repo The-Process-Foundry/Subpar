@@ -69,12 +69,19 @@ impl ExcelWorkbook {
   }
 
   pub fn read_metadata(conf: &ExcelConfig) -> Result<super::WorkbookMetadata, SubparError> {
-    let mut sheets = std::collections::HashMap::<String, (usize, usize)>::new();
+    let mut sheets = std::collections::HashMap::new();
     let sheet_names = ExcelWorkbook::list_sheets(&conf)?;
     for sheet in sheet_names {
       let range = ExcelWorkbook::get_range(conf, sheet.clone())?;
       let (height, width) = range.get_size();
-      sheets.insert(sheet.clone(), (height.clone(), width.clone()));
+      sheets.insert(
+        sheet.clone(),
+        super::SheetMetadata {
+          sheet_id: 0,
+          range: (height.clone(), width.clone()),
+          key_map: std::collections::HashMap::new(),
+        },
+      );
     }
 
     Ok(super::WorkbookMetadata {
