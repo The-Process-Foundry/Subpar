@@ -30,6 +30,56 @@ impl SheetsWorkbook {
     Ok(worksheet.list_sheets()?)
   }
 
+  /// Create a key to row map from the worksheet metadata. This is how we figure out the location
+  /// for data updates.
+  fn get_metadata_keymap(
+    worksheet: &sheets_db::SheetDB,
+    sheet_id: i64,
+  ) -> Result<std::collections::HashMap<String, super::SheetRowId>, SubparError> {
+    // Load the key map
+    let range = sheets_db::DeveloperMetadataLookup {
+      location_type: None,
+      metadata_location: sheets_db::DeveloperMetadataLocation {
+        location_type: sheets_db::DeveloperMetadataLocationType::Sheet,
+        value: sheets_db::DeveloperMetadataLocationValue::SheetId(sheet_id),
+      },
+      metadata_key: Some("row_key".to_string()),
+      metadata_value: None,
+      metadata_id: None,
+      location_matching_strategy: sheets_db::DeveloperMetadataMatchingStrategy::Intersecting,
+      visibility: None,
+    };
+    let filters = vec![sheets_db::DataFilter::Lookup(range)];
+    let search_result = worksheet.search_metadata(filters)?;
+    let mut key_map = std::collections::HashMap::new();
+    match search_result.matches {
+      None => (),
+      Some(metadata) => {
+        for key in metadata {
+          let value = key.developer_metadata.value;
+          let row_number = match key.developer_metadata.location.value {
+            sheets_db::DeveloperMetadataLocationValue::Range(range) => range.start_index,
+            sheets_db::DeveloperMetadataLocationValue::SheetId(_) => {
+              unimplemented!("SheetId is not currently used in storing developer sheet metadata")
+            }
+            sheets_db::DeveloperMetadataLocationValue::Spreadsheet(_) => unimplemented!(
+              "Spreadsheet is not currently used in storing developer sheet metadata"
+            ),
+          };
+          let row_id = key.developer_metadata.id.unwrap().to_string();
+          match key_map.insert(value.clone(), super::SheetRowId { row_number, row_id }) {
+            None => (),
+            Some(_) => panic!(
+              "Duplicate key '{}' metadata in sheet_id '{}'. Should be impossible",
+              value, sheet_id
+            ),
+          }
+        }
+      }
+    }
+    Ok(key_map)
+  }
+
   pub fn read_metadata(conf: &SheetsConfig) -> Result<super::WorkbookMetadata, SubparError> {
     let mut sheets = std::collections::HashMap::new();
     let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), conf.workbook_id.clone().unwrap())?;
@@ -40,8 +90,8 @@ impl SheetsWorkbook {
         props.grid_properties.column_count.clone() as usize,
       );
 
-      let key_map = std::collections::HashMap::new();
-      // debug!("worksheet.get_sheet_properties:\n{:#?}", props);\
+      let key_map = SheetsWorkbook::get_metadata_keymap(&worksheet, props.sheet_id)?;
+
       sheets.insert(
         sheet_name.clone(),
         super::SheetMetadata {

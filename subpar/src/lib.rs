@@ -112,10 +112,16 @@ pub struct Sheet {
 }
 
 #[derive(Clone, Debug)]
+pub struct SheetRowId {
+  row_number: i32,
+  row_id: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct SheetMetadata {
   pub sheet_id: i64,
   pub range: (usize, usize),
-  pub key_map: std::collections::HashMap<String, i32>,
+  pub key_map: std::collections::HashMap<String, SheetRowId>,
 }
 
 /// A place to store generic information about the workbook.
@@ -134,39 +140,26 @@ pub struct Workbook {
   // workbook: WorkbookWrapper,
 }
 
-// Custom cloning since calamine doesn't implement it for the reader
-// impl Clone for Workbook {
-//   fn clone(&self) -> Self {
-//     Workbook {
-//       _metadata: self._metadata.clone(),
-//       config: self.config.clone(),
-//       workbook: match &self.workbook {
-//         WorkbookWrapper::Error(x) => WorkbookWrapper::Error(x.clone()),
-//         WorkbookWrapper::Unopened => WorkbookWrapper::Unopened,
-//         WorkbookWrapper::Csv => WorkbookWrapper::Csv,
-//         WorkbookWrapper::Sheets => WorkbookWrapper::Sheets,
-//         WorkbookWrapper::Excel => match self.config.clone() {
-//           WorkbookConfig::Excel(conf) => match excel::ExcelWorkbook::open(conf.path.clone()) {
-//             Ok(workbook) => WorkbookWrapper::Excel,
-//             Err(err) => WorkbookWrapper::Error(err),
-//           },
-//           x => WorkbookWrapper::Error(SubparError::WorkbookMismatch(format!(
-//             "Attempted to clone an excel workbook but didn't have an excel config: {:#?}",
-//             x
-//           ))),
-//         },
-//       },
-//     }
-//   }
-// }
-
 // Just for Copy/Paste
 // match self {
 //   Excel => unimplemented!(),
 //   GoogleSheets => unimplemented!(),
 //   CSV => unimplemented!(),
 // }
+// impl Workbook {
+//   pub fn search_metadata(
+//     &self,
+//     filters: Vec<sheets_db::DataFilter>,
+//   ) -> Result<SheetMetadata, SubparError> {
+//     match &self.config {
+//       WorkbookConfig::Excel(_) => unimplemented!("Search Metadata is not implemented for Excel"),
+//       WorkbookConfig::CSV(_) => unimplemented!("Search Metadata is not implemented for CSV"),
+//       WorkbookConfig::GoogleSheets(conf) => sheets::SheetsWorkbook::search_metadata(conf, filters),
+//     }
+//   }
+// }
 
+// Implemetation made to route the workbook to the proper code based on the workbook type
 impl MetaWorkbook for Workbook {
   /// Attempt to validate the config passed in and create workbook object ready to run
   fn new(config: &WorkbookConfig) -> Result<Workbook, SubparError> {
@@ -180,8 +173,8 @@ impl MetaWorkbook for Workbook {
 
   fn read_metadata(config: &WorkbookConfig) -> Result<WorkbookMetadata, SubparError> {
     match config {
-      WorkbookConfig::Excel(conf) => excel::ExcelWorkbook::read_metadata(conf),
-      WorkbookConfig::GoogleSheets(conf) => sheets::SheetsWorkbook::read_metadata(conf),
+      WorkbookConfig::Excel(conf) => excel::ExcelWorkbook::read_metadata(&conf),
+      WorkbookConfig::GoogleSheets(conf) => sheets::SheetsWorkbook::read_metadata(&conf),
       WorkbookConfig::CSV(_conf) => unimplemented!(),
     }
   }
@@ -198,7 +191,7 @@ impl MetaWorkbook for Workbook {
   // Read the worksheet
   fn read_sheet(&self, sheet_name: String) -> Result<Sheet, SubparError> {
     // sheet in metadata?
-    // refresh metadata if not
+    // refresh metadata if notread_sheet
     match self.metadata.sheet_map.get(&sheet_name) {
       None => Err(SubparError::UnknownSheet(format!(
         "The workbook does not contain a sheet named '{}'. Possible options: {:#?}",
@@ -354,7 +347,7 @@ impl SubparTable for NaiveDateTime {
               }
               _ => {
                 let msg = format!(
-                  "could not format '{:#?}' into a date formatted as m/d/y.",
+                  "could not format '{}' into a date formatted as m/d/y.",
                   value
                 );
                 log::error!("{}", msg);
@@ -635,5 +628,31 @@ pub fn get_cell(excel_object: ExcelObject, cell_name: String) -> Result<ExcelObj
 //     let wb = MetaWorkbook::new("../subpar_test/data/test_db.xlsx".to_string());
 //     let db = DB::from_excel(&ExcelObject::Workbook(wb));
 //     println!("db:\n{:#?}", db);
+//   }
+// }
+
+// Custom cloning since calamine doesn't implement it for the reader
+// impl Clone for Workbook {
+//   fn clone(&self) -> Self {
+//     Workbook {
+//       _metadata: self._metadata.clone(),
+//       config: self.config.clone(),
+//       workbook: match &self.workbook {
+//         WorkbookWrapper::Error(x) => WorkbookWrapper::Error(x.clone()),
+//         WorkbookWrapper::Unopened => WorkbookWrapper::Unopened,
+//         WorkbookWrapper::Csv => WorkbookWrapper::Csv,
+//         WorkbookWrapper::Sheets => WorkbookWrapper::Sheets,
+//         WorkbookWrapper::Excel => match self.config.clone() {
+//           WorkbookConfig::Excel(conf) => match excel::ExcelWorkbook::open(conf.path.clone()) {
+//             Ok(workbook) => WorkbookWrapper::Excel,
+//             Err(err) => WorkbookWrapper::Error(err),
+//           },
+//           x => WorkbookWrapper::Error(SubparError::WorkbookMismatch(format!(
+//             "Attempted to clone an excel workbook but didn't have an excel config: {:#?}",
+//             x
+//           ))),
+//         },
+//       },
+//     }
 //   }
 // }

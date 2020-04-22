@@ -116,6 +116,8 @@ pub struct DB {
   // pub payment: Vec<Payment>,
 }
 
+// These are in the process of becoming macros themselves. Step one is to make the code work in the concrete
+// world before converting to an abstract.
 impl DB {
   pub fn upsert_invoice(workbook: &subpar::Workbook, invoice: &Invoice) -> Result<(), SubparError> {
     let key = invoice.get_key_hash();
@@ -141,6 +143,7 @@ impl DB {
       )))?,
     };
 
+    log::debug!("invoice_metadata.key_map:\n{:#?}", invoice_metadata.key_map);
     let mut existing = std::collections::HashMap::<String, String>::new();
     for key in invoice_metadata.key_map.keys() {
       existing.insert(key.clone(), key.clone());
@@ -163,7 +166,7 @@ impl DB {
           debug!("No key found for {}. inserting", key);
           let developer_metadata = sheets_db::DeveloperMetadata {
             id: None,
-            key: "RowKey".to_string(),
+            key: "row_key".to_string(),
             value: key.clone(),
             visibility: sheets_db::DeveloperMetadataVisibility::Project,
             location: sheets_db::DeveloperMetadataLocation {
@@ -172,10 +175,11 @@ impl DB {
                 sheet_id,
                 dimension: sheets_db::Dimension::Rows,
                 start_index: 1,
-                end_index: 1,
+                end_index: 2,
               }),
             },
           };
+
           updates.insert(
             key.clone(),
             sheets_db::BatchUpdateRequestItem::CreateDeveloperMetadata(
@@ -224,8 +228,8 @@ fn test_ctx() {
 fn test_sheets() {
   env_logger::init();
   // Read the submissions tab of the log using subpar
-  // let sheet_id = String::from("1kwQgjicMgKVV1aZ1oStIjpahQLDronaqzkTKdD-paI0");
-  let sheet_id = String::from("1mQgyqcCYBqyfFmHZB6q5J_L2FQSQ5ppO5hxo_81utZ0");
+  let sheet_id = String::from("1kwQgjicMgKVV1aZ1oStIjpahQLDronaqzkTKdD-paI0");
+  // let sheet_id = String::from("1mQgyqcCYBqyfFmHZB6q5J_L2FQSQ5ppO5hxo_81utZ0");
   let db_conf = subpar::WorkbookConfig::new_sheets_config(
     Some(sheet_id.clone()),
     "/home/dfogelson/fhl_service_acct.json".to_string(),
@@ -234,13 +238,14 @@ fn test_sheets() {
 
   debug!("db_conf:\n{:#?}", db_conf);
 
-  let wb = subpar::Workbook::open(&db_conf).expect("Failed opening the google sheets workbook");
+  let mut wb = subpar::Workbook::open(&db_conf).expect("Failed opening the google sheets workbook");
   let db = DB::from_excel(&ExcelObject::Workbook(wb.clone())).unwrap();
   println!("Done loading DB:\n{}", db);
 
-  // let result = db
-  // .update_metadata(&mut wb)
-  // .expect("Error updating the metadata");
+  // let invoice_key_mapping = db.list_key_metadata(&mut wb, "invoices".to_string());
+  let _ = db
+    .update_metadata(&mut wb)
+    .expect("Error updating the metadata");
 
   // List all dev metadata in hash
 
