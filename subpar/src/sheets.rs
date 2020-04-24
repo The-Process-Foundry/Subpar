@@ -6,7 +6,7 @@ use std::borrow::Borrow;
 
 #[derive(Debug, Clone)]
 pub struct SheetsConfig {
-  workbook_id: Option<String>,
+  pub workbook_id: Option<String>,
   auth: wrapi::AuthMethod,
 }
 
@@ -40,7 +40,7 @@ impl SheetsWorkbook {
     let range = sheets_db::DeveloperMetadataLookup {
       location_type: None,
       metadata_location: sheets_db::DeveloperMetadataLocation {
-        location_type: sheets_db::DeveloperMetadataLocationType::Sheet,
+        location_type: Some(sheets_db::DeveloperMetadataLocationType::Sheet),
         value: sheets_db::DeveloperMetadataLocationValue::SheetId(sheet_id),
       },
       metadata_key: Some("row_key".to_string()),
@@ -66,7 +66,7 @@ impl SheetsWorkbook {
               "Spreadsheet is not currently used in storing developer sheet metadata"
             ),
           };
-          let row_id = key.developer_metadata.id.unwrap().to_string();
+          let row_id = key.developer_metadata.id.unwrap();
           match key_map.insert(value.clone(), super::SheetRowId { row_number, row_id }) {
             None => (),
             Some(_) => panic!(
@@ -78,6 +78,15 @@ impl SheetsWorkbook {
       }
     }
     Ok(key_map)
+  }
+
+  /// Take a list of actions and then send the batch update to Google
+  pub fn update_workbook(
+    conf: SheetsConfig,
+    requests: Vec<sheets_db::BatchUpdateRequestItem>,
+  ) -> Result<Box<sheets_db::BatchUpdateResponse>, SubparError> {
+    let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), conf.workbook_id.clone().unwrap())?;
+    Ok(worksheet.batch_update(requests)?)
   }
 
   pub fn read_metadata(conf: &SheetsConfig) -> Result<super::WorkbookMetadata, SubparError> {

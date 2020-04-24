@@ -27,6 +27,10 @@ pub trait MetaWorkbook {
   fn open(config: &WorkbookConfig) -> Result<Workbook, SubparError>;
   fn read_metadata(config: &WorkbookConfig) -> Result<WorkbookMetadata, SubparError>;
   fn read_sheet(&self, sheet_name: String) -> Result<Sheet, SubparError>;
+  fn update_workbook(
+    &self,
+    requests: Vec<sheets_db::BatchUpdateRequestItem>,
+  ) -> Result<Box<sheets_db::BatchUpdateResponse>, SubparError>;
 
   // write_sheet(&self)
   // fn insert_row(&self, sheet_name: String, row_number: i32)
@@ -36,7 +40,7 @@ pub trait MetaWorkbook {
 
 #[derive(Debug, Clone)]
 pub struct CsvConfig {
-  path: String,
+  sheet_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -113,8 +117,8 @@ pub struct Sheet {
 
 #[derive(Clone, Debug)]
 pub struct SheetRowId {
-  row_number: i32,
-  row_id: String,
+  pub row_number: i32,
+  pub row_id: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -136,7 +140,7 @@ pub struct WorkbookMetadata {
 #[derive(Clone, Debug)]
 pub struct Workbook {
   pub metadata: WorkbookMetadata,
-  config: WorkbookConfig,
+  pub config: WorkbookConfig,
   // workbook: WorkbookWrapper,
 }
 
@@ -158,6 +162,16 @@ pub struct Workbook {
 //     }
 //   }
 // }
+
+impl Workbook {
+  pub fn get_id(&self) -> String {
+    match &self.config {
+      WorkbookConfig::GoogleSheets(conf) => conf.workbook_id.clone().unwrap(),
+      WorkbookConfig::Excel(_) => unimplemented!("Excel doesn't get an ID yet"),
+      WorkbookConfig::CSV(_) => unimplemented!("CSV doesn't get an ID yet"),
+    }
+  }
+}
 
 // Implemetation made to route the workbook to the proper code based on the workbook type
 impl MetaWorkbook for Workbook {
@@ -206,6 +220,19 @@ impl MetaWorkbook for Workbook {
         }
         WorkbookConfig::CSV(_conf) => unimplemented!(),
       },
+    }
+  }
+
+  fn update_workbook(
+    &self,
+    requests: Vec<sheets_db::BatchUpdateRequestItem>,
+  ) -> Result<Box<sheets_db::BatchUpdateResponse>, SubparError> {
+    match &self.config {
+      WorkbookConfig::GoogleSheets(conf) => {
+        sheets::SheetsWorkbook::update_workbook(conf.clone(), requests)
+      }
+      WorkbookConfig::CSV(_conf) => unimplemented!("CSV's workbook cannot currently be updated"),
+      WorkbookConfig::Excel(_conf) => unimplemented!("Excel's overall workbook cannot be updated"),
     }
   }
 }

@@ -93,6 +93,7 @@ impl Invoice {
     map
   }
 
+  // Use the key hash to create a standardized key string
   fn get_key_string(&self) -> String {
     let mut result = "".to_string();
 
@@ -101,7 +102,9 @@ impl Invoice {
     keys.sort();
     for key in keys {
       result.push_str("|");
-      result.push_str(&serde_json::to_string(hash.get(&key).unwrap()).unwrap()[..])
+      let value: String =
+        url::form_urlencoded::byte_serialize(hash.get(&key).unwrap().as_bytes()).collect();
+      result.push_str(&value)
     }
     result
   }
@@ -120,6 +123,15 @@ pub struct DB {
 // world before converting to an abstract.
 impl DB {
   pub fn upsert_invoice(workbook: &subpar::Workbook, invoice: &Invoice) -> Result<(), SubparError> {
+    /// Duplicate code.
+    let metadata: &SheetMetadata = match workbook.metadata.sheet_map.get("invoices") {
+      Some(metadata) => metadata,
+      None => Err(SubparError::NotFound(format!(
+        "Could not find metadata for {}",
+        "invoices"
+      )))?,
+    };
+
     let key = invoice.get_key_hash();
     debug!("Upsert Key: {:#?}", key);
     // Make DataFilter call
@@ -144,22 +156,23 @@ impl DB {
     };
 
     log::debug!("invoice_metadata.key_map:\n{:#?}", invoice_metadata.key_map);
-    let mut existing = std::collections::HashMap::<String, String>::new();
-    for key in invoice_metadata.key_map.keys() {
-      existing.insert(key.clone(), key.clone());
+    let mut existing = std::collections::HashMap::<String, i64>::new();
+    for (key, value) in invoice_metadata.key_map.iter() {
+      existing.insert(key.clone(), value.row_id.clone());
     }
 
     let mut updates = std::collections::HashMap::<String, sheets_db::BatchUpdateRequestItem>::new();
     let invoices = workbook.read_sheet("invoices".to_string())?;
     let sheet_id = invoice_metadata.sheet_id.clone();
 
+    // Insert any new records
     for row in invoices.data {
       let invoice = Invoice::from_excel(&to_row(row.clone(), &invoices.header_map))?;
       let key = invoice.get_key_string();
       // println!("Checking Metadata on {:#?}:\n{:#?}", row[0].location, row);
       match existing.remove(&key) {
         Some(value) => {
-          println!("Found key {} at row {}", key, value);
+          println!("Found key {} with metadataId {}", key, value);
           // verify
         }
         None => {
@@ -170,7 +183,7 @@ impl DB {
             value: key.clone(),
             visibility: sheets_db::DeveloperMetadataVisibility::Project,
             location: sheets_db::DeveloperMetadataLocation {
-              location_type: sheets_db::DeveloperMetadataLocationType::Row,
+              location_type: None,
               value: sheets_db::DeveloperMetadataLocationValue::Range(sheets_db::DimensionRange {
                 sheet_id,
                 dimension: sheets_db::Dimension::Rows,
@@ -190,13 +203,43 @@ impl DB {
       }
     }
 
-    // let batch_update = sheets_db.BatchUpdateRequest {
-    //   sheet_id: workbook.config.sheet_id.clone(),
-    //   requests:
-    // };
+    // Now delete anything we didn't find
+    for (key, row_id) in existing.iter() {
+      log::debug!(
+        "Did not find matching key '{}': Removing from the metadata",
+        key
+      );
+      let range = sheets_db::DeveloperMetadataLookup {
+        location_type: None,
+        metadata_location: sheets_db::DeveloperMetadataLocation {
+          location_type: Some(sheets_db::DeveloperMetadataLocationType::Sheet),
+          value: sheets_db::DeveloperMetadataLocationValue::SheetId(sheet_id),
+        },
+        metadata_key: Some("row_key".to_string()),
+        metadata_value: None,
+        metadata_id: Some(row_id.clone()),
+        location_matching_strategy: sheets_db::DeveloperMetadataMatchingStrategy::Intersecting,
+        visibility: None,
+      };
+      updates.insert(
+        key.clone(),
+        sheets_db::BatchUpdateRequestItem::DeleteDeveloperMetadata(
+          sheets_db::DeleteDeveloperMetadataRequest {
+            filter: sheets_db::DataFilter::Lookup(range),
+          },
+        ),
+      );
+    }
 
-    debug!("Running updates on: {:#?}", updates);
-    unimplemented!("Update_metadata")
+    let requests: Vec<sheets_db::BatchUpdateRequestItem> =
+      updates.values().into_iter().map(|x| x.clone()).collect();
+    if requests.len() > 0 {
+      let result = workbook.update_workbook(requests)?;
+      log::debug!("\n\n-->\tUpdate Result:\n{:#?}", result);
+    } else {
+      log::debug!("All metadata already matches. Don't have to run an update")
+    }
+    Ok(())
   }
 }
 
@@ -228,7 +271,10 @@ fn test_ctx() {
 fn test_sheets() {
   env_logger::init();
   // Read the submissions tab of the log using subpar
-  let sheet_id = String::from("1kwQgjicMgKVV1aZ1oStIjpahQLDronaqzkTKdD-paI0");
+  // let sheet_id = String::from("1kwQgjicMgKVV1aZ1oStIjpahQLDronaqzkTKdD-paI0");
+
+  // Just Invoices sample sheet
+  let sheet_id = String::from("1YQWQE2rcM3O9mj4P_oT9GS8iWzDhkSMw0l_XH9f9Vzs");
   // let sheet_id = String::from("1mQgyqcCYBqyfFmHZB6q5J_L2FQSQ5ppO5hxo_81utZ0");
   let db_conf = subpar::WorkbookConfig::new_sheets_config(
     Some(sheet_id.clone()),
@@ -242,27 +288,21 @@ fn test_sheets() {
   let db = DB::from_excel(&ExcelObject::Workbook(wb.clone())).unwrap();
   println!("Done loading DB:\n{}", db);
 
-  // let invoice_key_mapping = db.list_key_metadata(&mut wb, "invoices".to_string());
+  // Reconcile the metadata on the worksheet. This should likely be done as part of the "open" command.
   let _ = db
     .update_metadata(&mut wb)
     .expect("Error updating the metadata");
 
-  // List all dev metadata in hash
-
-  // Iterate each row
-
-  // if
-
   // append a new invoice
-  // let mut invoice = Invoice {
-  //   guid: "Live Append Test".to_string(),
-  //   organization: "FHL".to_string(),
-  //   submissions: "[\"F20-4\"]".to_string(),
-  //   created_on: chrono::Utc::now().naive_utc(),
-  // };
+  let mut invoice = Invoice {
+    guid: "Live Append Test".to_string(),
+    organization: "FHL".to_string(),
+    submissions: "[\"F20-4\"]".to_string(),
+    created_on: chrono::Utc::now().naive_utc(),
+  };
 
-  // let result = DB::upsert_invoice(&wb, &invoice);
-  // debug!("The result of the append: {:#?}", result);
+  let result = DB::upsert_invoice(&wb, &invoice);
+  debug!("The result of the upsert: {:#?}", result);
 
   // update the invoice
   // invoice.submissions = "[\"F20-6\"]".to_string();

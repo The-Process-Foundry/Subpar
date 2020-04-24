@@ -975,6 +975,7 @@ dependencies = [
  "serde_json 1.0.48 (registry+https://github.com/rust-lang/crates.io-index)",
  "sheets_db 0.1.0",
  "subpar_derive 0.1.0",
+ "url 2.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "wrapi 0.1.0",
  "yup-oauth2 3.1.0",
 ]
