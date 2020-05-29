@@ -77,6 +77,8 @@ impl ExcelWorkbook {
       sheets.insert(
         sheet.clone(),
         super::SheetMetadata {
+          header_map: None,
+          header_vec: None,
           sheet_id: 0,
           range: (height.clone(), width.clone()),
           key_map: std::collections::HashMap::new(),

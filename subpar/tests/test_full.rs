@@ -86,6 +86,7 @@ pub struct Invoice {
   created_on: NaiveDateTime,
 }
 
+// TODO: move get_key_hash to macro creating
 impl Invoice {
   fn get_key_hash(&self) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
@@ -108,6 +109,25 @@ impl Invoice {
     }
     result
   }
+
+  /// Alias the fields
+  fn get_cell_by_header(&self, field_name: &str) -> Result<subpar::CellType, SubparError> {
+    match &field_name[..] {
+      "guid" | "Invoice ID" => Ok(subpar::CellType::String(self.guid.clone())),
+      "organization" | "Organization" => Ok(subpar::CellType::String(self.organization.clone())),
+      "submissions" | "Submissions" => Ok(subpar::CellType::String(self.submissions.clone())),
+      "created_on" | "Date Created" => {
+        let value = self.created_on.format("%m/%d/%Y").to_string();
+        Ok(subpar::CellType::String(value))
+      }
+      _ => Err(SubparError::NotFound(format!(
+        "Invoice does have a field known as '{}'",
+        field_name
+      ))),
+    }
+  }
+  // fn to_row(&self) -> Vec<String> {
+  // }
 }
 
 #[derive(Debug, Clone, SubparTable)]
@@ -123,7 +143,6 @@ pub struct DB {
 // world before converting to an abstract.
 impl DB {
   pub fn upsert_invoice(workbook: &subpar::Workbook, invoice: &Invoice) -> Result<(), SubparError> {
-    /// Duplicate code.
     let metadata: &SheetMetadata = match workbook.metadata.sheet_map.get("invoices") {
       Some(metadata) => metadata,
       None => Err(SubparError::NotFound(format!(
@@ -132,44 +151,107 @@ impl DB {
       )))?,
     };
 
-    let key = invoice.get_key_hash();
-    debug!("Upsert Key: {:#?}", key);
-    // Make DataFilter call
+    let new_metadata = DB::update_metadata(workbook, "invoices".to_string())?;
+    log::debug!(
+      "Got current worksheet:\n{:#?}\n{:#?}",
+      new_metadata.header_map,
+      new_metadata.header_vec
+    );
+    let key = invoice.get_key_string();
+    let header_vec = new_metadata.header_vec.unwrap();
+    match metadata.key_map.get(&key) {
+      None => {
+        log::debug!("Upserting a new row for key: '{}'", key);
+        let grid_range = sheets_db::GridRange {
+          sheet_id: metadata.sheet_id,
+          start_row_index: 1,
+          end_row_index: 2,
+          start_column_index: 1,
+          end_column_index: header_vec.clone().len() as i32,
+        };
 
-    debug!("The Workbook: {:#?}", workbook);
+        // Here's where we need to add a macro to map column names to positions for writing
+        let as_row: Vec<subpar::CellType> = header_vec
+          .iter()
+          .map(|header| match invoice.get_cell_by_header(header) {
+            Ok(x) => x,
+            Err(SubparError::NotFound(_)) => subpar::CellType::String("".to_string()),
+            Err(err) => unreachable!(format!(
+              "get_cell_by_header returned an impossible error:\n{:#?}",
+              err
+            )),
+          })
+          .collect();
 
-    // match exists {
-    // Some(existing) => Update call
-    // None => Append Call
-    // }
-    unimplemented!()
+        log::debug!("as_row:\n{:#?}", as_row);
+        let values_range = sheets_db::ValueRange {
+          range: Some(grid_range.to_range("invoices".to_string())),
+          major_dimension: Some(sheets_db::MajorDimension::Rows),
+          values: vec![as_row
+            .iter()
+            .map(|item| match item {
+              subpar::CellType::String(x) => x.clone(),
+              _ => unimplemented!("Haven't done non string values for the append record yet"),
+            })
+            .collect()],
+        };
+
+        match &workbook.config {
+          subpar::WorkbookConfig::GoogleSheets(conf) => {
+            let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), workbook.get_id())?;
+            let req = worksheet.append_values(values_range);
+            log::debug!("req:\n{:#?}", req);
+          }
+          subpar::WorkbookConfig::CSV(_conf) => {
+            unimplemented!("CSV's workbook cannot currently be updated")
+          }
+          subpar::WorkbookConfig::Excel(_conf) => {
+            unimplemented!("Excel's overall workbook cannot be updated")
+          }
+        }
+        unimplemented!("Haven't finished coding the insert new")
+      }
+      Some(row_id) => {
+        log::debug!("Updating a key: '{}' at metadataId: '{:#?}'", key, row_id);
+        unimplemented!("Haven't coded the update yet")
+
+        // values_range: sheets_db::ValueRange = { range: format!("invoices!A{}:{}{}", , metadata) }
+      }
+    }
   }
 
-  pub fn update_metadata(&self, workbook: &mut subpar::Workbook) -> Result<(), SubparError> {
+  /// Read the google sheet and update the metadata for each row based on itself
+  /// This should always be run before any modifications are sent to the server
+  /// TODO: Figure out how to keep the workbook metadata synced. Currently cannot make it mutable due to
+  ///      the way I coded the macro
+  pub fn update_metadata(
+    workbook: &subpar::Workbook,
+    sheet_name: String,
+  ) -> Result<subpar::SheetMetadata, SubparError> {
     debug!("Reconciling metadata");
-    let invoice_metadata: &SheetMetadata = match workbook.metadata.sheet_map.get("invoices") {
-      Some(metadata) => metadata,
+    let metadata: &SheetMetadata = match workbook.metadata.sheet_map.get(&sheet_name) {
+      Some(x) => x,
       None => Err(SubparError::NotFound(format!(
         "Could not find metadata for {}",
         "invoices"
       )))?,
     };
 
-    log::debug!("invoice_metadata.key_map:\n{:#?}", invoice_metadata.key_map);
+    log::debug!("{} metadata.key_map:\n{:#?}", sheet_name, metadata.key_map);
     let mut existing = std::collections::HashMap::<String, i64>::new();
-    for (key, value) in invoice_metadata.key_map.iter() {
+    for (key, value) in metadata.key_map.iter() {
       existing.insert(key.clone(), value.row_id.clone());
     }
 
     let mut updates = std::collections::HashMap::<String, sheets_db::BatchUpdateRequestItem>::new();
-    let invoices = workbook.read_sheet("invoices".to_string())?;
-    let sheet_id = invoice_metadata.sheet_id.clone();
+    let sheet_id = metadata.sheet_id.clone();
+    let sheet = workbook.read_sheet(sheet_name)?;
 
     // Insert any new records
-    for row in invoices.data {
-      let invoice = Invoice::from_excel(&to_row(row.clone(), &invoices.header_map))?;
+    for row in sheet.data.clone() {
+      let invoice = Invoice::from_excel(&to_row(row.clone(), &sheet.header_map))?;
       let key = invoice.get_key_string();
-      // println!("Checking Metadata on {:#?}:\n{:#?}", row[0].location, row);
+
       match existing.remove(&key) {
         Some(value) => {
           println!("Found key {} with metadataId {}", key, value);
@@ -239,7 +321,14 @@ impl DB {
     } else {
       log::debug!("All metadata already matches. Don't have to run an update")
     }
-    Ok(())
+
+    // TODO: The metadata is incorrect now. It needs to be refreshed, but this is getting brutal with
+    //       the requeries
+    Ok(SheetMetadata {
+      header_map: Some(sheet.header_map),
+      header_vec: Some(sheet.header_vec),
+      ..metadata.clone()
+    })
   }
 }
 
@@ -284,30 +373,32 @@ fn test_sheets() {
 
   debug!("db_conf:\n{:#?}", db_conf);
 
-  let mut wb = subpar::Workbook::open(&db_conf).expect("Failed opening the google sheets workbook");
+  let wb = subpar::Workbook::open(&db_conf).expect("Failed opening the google sheets workbook");
   let db = DB::from_excel(&ExcelObject::Workbook(wb.clone())).unwrap();
   println!("Done loading DB:\n{}", db);
 
   // Reconcile the metadata on the worksheet. This should likely be done as part of the "open" command.
-  let _ = db
-    .update_metadata(&mut wb)
-    .expect("Error updating the metadata");
+  let _invoice_sheet =
+    DB::update_metadata(&wb, "invoices".to_string()).expect("Error updating the metadata");
 
+  let guid = uuid::Uuid::new_v4().to_string();
   // append a new invoice
   let mut invoice = Invoice {
-    guid: "Live Append Test".to_string(),
+    guid,
     organization: "FHL".to_string(),
-    submissions: "[\"F20-4\"]".to_string(),
+    submissions: "[]".to_string(),
     created_on: chrono::Utc::now().naive_utc(),
   };
 
+  println!("\n\n\n--->  Inserting the new invoice \n");
   let result = DB::upsert_invoice(&wb, &invoice);
   debug!("The result of the upsert: {:#?}", result);
 
   // update the invoice
-  // invoice.submissions = "[\"F20-6\"]".to_string();
-  // let result = DB::upsert_invoice(&wb, &invoice);
-  // debug!("The result of the update: {:#?}", result);
+  println!("\n\n\n--->  Updating the new invoice");
+  invoice.submissions = "[\"F20-6\"]".to_string();
+  let result = DB::upsert_invoice(&wb, &invoice);
+  debug!("The result of the update: {:#?}", result);
 
   // reread the database
 

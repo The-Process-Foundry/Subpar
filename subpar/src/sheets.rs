@@ -7,7 +7,7 @@ use std::borrow::Borrow;
 #[derive(Debug, Clone)]
 pub struct SheetsConfig {
   pub workbook_id: Option<String>,
-  auth: wrapi::AuthMethod,
+  pub auth: wrapi::AuthMethod,
 }
 
 impl SheetsConfig {
@@ -69,9 +69,10 @@ impl SheetsWorkbook {
           let row_id = key.developer_metadata.id.unwrap();
           match key_map.insert(value.clone(), super::SheetRowId { row_number, row_id }) {
             None => (),
-            Some(_) => panic!(
+            Some(_) => log::warn!(
               "Duplicate key '{}' metadata in sheet_id '{}'. Should be impossible",
-              value, sheet_id
+              value,
+              sheet_id
             ),
           }
         }
@@ -104,6 +105,8 @@ impl SheetsWorkbook {
       sheets.insert(
         sheet_name.clone(),
         super::SheetMetadata {
+          header_map: None,
+          header_vec: None,
           sheet_id: props.sheet_id.clone(),
           range,
           key_map,
@@ -118,8 +121,18 @@ impl SheetsWorkbook {
   }
 
   pub fn read_sheet(conf: SheetsConfig, sheet_name: String) -> Result<super::Sheet, SubparError> {
-    debug!("Reading the sheet named '{}'", sheet_name.clone());
-    let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), conf.workbook_id.clone().unwrap())?;
+    let workbook_id = match conf.workbook_id {
+      Some(id) => Ok(id),
+      None => Err(SubparError::SheetsError(
+        "Cannot read_sheet because no workbook ID was configured".to_string(),
+      )),
+    }?;
+    debug!(
+      "Reading the sheet named '{}' in workbook '{}'",
+      sheet_name, workbook_id
+    );
+
+    let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), workbook_id)?;
 
     let sheet = worksheet.get_sheet(sheet_name.clone())?;
     let value_range: &sheets_db::ValueRange = sheet.borrow();
@@ -176,6 +189,8 @@ impl SheetsWorkbook {
     })
   }
 }
+
+// pub fn append_item<T>(conf: SheetsConfig, )
 
 impl std::fmt::Debug for SheetsWorkbook {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

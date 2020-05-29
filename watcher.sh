@@ -2,8 +2,8 @@
 
 
 export RUST_BACKTRACE=0;
-export RUST_LOG=warn,subpar=debug,wrapi=info,gappi=info,test=debug;
-
+export RUST_LOG=warn,subpar=debug,wrapi=debug,gappi=info,test=debug;
+# export RUSTFLAGS="-Z macro-backtrace -Z debug-macros"
 
 function rebuild_invoicer {
   echo "\n\n\n\n\n\n\t\t<-------------------------->\n\nBuilding and running the full test\n"

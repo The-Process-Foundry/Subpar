@@ -10,7 +10,7 @@ description = "A set of traits and derives for working with tabular workbooks. I
 
 [dependencies]
 subpar_derive = { path = "../subpar_derive" }
-chrono = "0.4.7"
+chrono = "0.4.11"
 calamine = "0.15.5"
 log = "0.4.8"
 env_logger = "0.7.1"
@@ -20,3 +20,6 @@ url = "2.1.1"
 sheets_db = {path = "../../Gappi/sheets_db"}
 wrapi = {path="../../Wrapi"}
 yup-oauth2 = {path="../../yup-oauth2"}
+
+[dev-dependencies]
+uuid =  { version = "0.8", features = ["serde", "v4"] }

@@ -108,6 +108,7 @@ pub struct Cell {
   pub data: CellType,
 }
 
+/// The full data set included in the sheet
 #[derive(Clone, Debug)]
 pub struct Sheet {
   pub header_map: std::collections::HashMap<String, usize>,
@@ -121,8 +122,12 @@ pub struct SheetRowId {
   pub row_id: i64,
 }
 
+/// Information about the spreadsheet
+/// As an optimization, the header information will not be loaded until the sheet is actually read
 #[derive(Clone, Debug)]
 pub struct SheetMetadata {
+  pub header_map: Option<std::collections::HashMap<String, usize>>,
+  pub header_vec: Option<Vec<String>>,
   pub sheet_id: i64,
   pub range: (usize, usize),
   pub key_map: std::collections::HashMap<String, SheetRowId>,
@@ -223,6 +228,7 @@ impl MetaWorkbook for Workbook {
     }
   }
 
+  /// Update the workbook level metadata
   fn update_workbook(
     &self,
     requests: Vec<sheets_db::BatchUpdateRequestItem>,
@@ -236,6 +242,7 @@ impl MetaWorkbook for Workbook {
     }
   }
 }
+
 /// Wrappers for the various types of Excel Resources so we can pass them around more easily
 ///
 /// This allows us to generically iterate through the conversions
