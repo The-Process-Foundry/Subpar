@@ -19,5 +19,9 @@ syn = { version = "1.0.3", features = ["extra-traits"] }
 quote = "1.0.2"
 env_logger = "0.7.1"
 
+
+# Error creation/handling
+anyhow = "1.0.32"
+
 [dev-dependencies]
 syn = { version = "1.0.3", features = ["extra-traits"] }

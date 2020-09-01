@@ -1,59 +1,95 @@
+use thiserror::Error;
+
+// FIXME: This is ugly, but this is the intermediate step to converting everything to use anyhow
+#[macro_export]
+macro_rules! to_subpar_error {
+  ($result:expr) => {
+    match $result {
+      Ok(x) => x,
+      Err(err) => {
+        let msg = format!("{:#?}", &err);
+        Err(<SubparError>::from(err)).context(msg)?
+      }
+    }
+  };
+}
+
 /// The full set of exceptions that can be raised at any step in this process
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum SubparError {
-  GenericError(String),
-  EmptyWorksheet(String),
-  IncorrectExcelObject(String),
-  InvalidCellType(String),
-  InvalidPath(String),
-  FileReadOnly(String),
-  NetworkError(String),
-  NotFound(String),
-  NotImplemented(String),
-  NullValue(String),
-  FloatParseError(String),
-  ReadOnly(String),
-  UnknownColumn(String),
-  UnknownSheet(String),
-  UnexpectedError(String),
-  ExcelError(String),
-  SheetsError(String),
-  CSVError(String),
-  WorkbookMismatch(String),
-  ParsingError(String),
+  #[error("GenericError")]
+  GenericError,
+  #[error("EmptyWorksheet")]
+  EmptyWorksheet,
+  #[error("IncorrectExcelObject")]
+  IncorrectExcelObject,
+  #[error("InvalidCellType")]
+  InvalidCellType,
+  #[error("InvalidPath")]
+  InvalidPath,
+  #[error("FileReadOnly")]
+  FileReadOnly,
+  #[error("NetworkError")]
+  NetworkError,
+  #[error("NotFound")]
+  NotFound,
+  #[error("NotImplemented")]
+  NotImplemented,
+  #[error("NullValue")]
+  NullValue,
+  #[error("FloatParseError")]
+  FloatParseError,
+  #[error("ReadOnly")]
+  ReadOnly,
+  #[error("UnknownColumn")]
+  UnknownColumn,
+  #[error("UnknownSheet")]
+  UnknownSheet,
+  #[error("UnexpectedError")]
+  UnexpectedError,
+  #[error("ExcelError")]
+  ExcelError,
+  #[error("SheetsError")]
+  SheetsError,
+  #[error("CSVError")]
+  CSVError,
+  #[error("WorkbookMismatch")]
+  WorkbookMismatch,
+  #[error("ParsingError")]
+  ParsingError,
 }
 
 impl From<wrapi::WrapiError> for SubparError {
   fn from(err: wrapi::WrapiError) -> SubparError {
     match err {
-      wrapi::WrapiError::Connection(msg) => SubparError::NetworkError(msg),
-      wrapi::WrapiError::Json(msg) => SubparError::ParsingError(msg),
-      wrapi::WrapiError::Http(msg) => SubparError::NetworkError(msg),
-      wrapi::WrapiError::General(msg) => SubparError::UnexpectedError(msg),
+      wrapi::WrapiError::Connection(_) => SubparError::NetworkError,
+      wrapi::WrapiError::Json(_) => SubparError::ParsingError,
+      wrapi::WrapiError::Http(_) => SubparError::NetworkError,
+      wrapi::WrapiError::General(_) => SubparError::UnexpectedError,
     }
   }
 }
 
 impl From<chrono::ParseError> for SubparError {
-  fn from(err: chrono::ParseError) -> SubparError {
-    SubparError::ParsingError(err.to_string())
+  fn from(_err: chrono::ParseError) -> SubparError {
+    SubparError::ParsingError
   }
 }
 
 impl From<std::num::ParseIntError> for SubparError {
-  fn from(err: std::num::ParseIntError) -> SubparError {
-    SubparError::ParsingError(err.to_string())
+  fn from(_err: std::num::ParseIntError) -> SubparError {
+    SubparError::ParsingError
   }
 }
 
 impl From<std::num::ParseFloatError> for SubparError {
-  fn from(err: std::num::ParseFloatError) -> SubparError {
-    SubparError::ParsingError(err.to_string())
+  fn from(_err: std::num::ParseFloatError) -> SubparError {
+    SubparError::ParsingError
   }
 }
 
 impl From<std::string::String> for SubparError {
-  fn from(err: std::string::String) -> SubparError {
-    SubparError::GenericError(err)
+  fn from(_err: std::string::String) -> SubparError {
+    SubparError::GenericError
   }
 }

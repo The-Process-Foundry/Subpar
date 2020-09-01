@@ -3,6 +3,8 @@
 //! This is read-only because calamine only does read. The primary driver for this
 //! is CSV and Google Sheets, and Excel was only for importing data from an end user.
 //!
+
+use anyhow::{Context, Result};
 use calamine::Reader;
 
 use super::{CellType, SubparError};
@@ -37,19 +39,18 @@ impl std::fmt::Debug for ExcelWorkbook {
 // }
 
 impl ExcelWorkbook {
-  fn get_reader(path: &String) -> Result<ExcelReader, SubparError> {
+  fn get_reader(path: &String) -> Result<ExcelReader> {
     match calamine::open_workbook(path.clone()) {
       Ok(wb) => Ok(wb),
-      Err(err) => Err(SubparError::InvalidPath(
-        format!("There was a problem opening the excel workbook: {:#?}", err).to_string(),
-      )),
+      Err(err) => Err(SubparError::InvalidPath)
+        .context(format!("There was a problem opening the excel workbook: {:#?}", err).to_string()),
     }
   }
 
   fn get_range(
     conf: &ExcelConfig,
     sheet_name: String,
-  ) -> Result<calamine::Range<calamine::DataType>, SubparError> {
+  ) -> Result<calamine::Range<calamine::DataType>> {
     let mut reader: ExcelReader = ExcelWorkbook::get_reader(&conf.path)?;
     match reader.worksheet_range(&sheet_name[..]) {
       Some(Ok(range)) => Ok(range),
@@ -57,7 +58,7 @@ impl ExcelWorkbook {
     }
   }
 
-  fn list_sheets(conf: &ExcelConfig) -> Result<Vec<String>, SubparError> {
+  fn list_sheets(conf: &ExcelConfig) -> Result<Vec<String>> {
     let reader: ExcelReader = ExcelWorkbook::get_reader(&conf.path)?;
     Ok(
       reader
@@ -68,7 +69,7 @@ impl ExcelWorkbook {
     )
   }
 
-  pub fn read_metadata(conf: &ExcelConfig) -> Result<super::WorkbookMetadata, SubparError> {
+  pub fn read_metadata(conf: &ExcelConfig) -> Result<super::WorkbookMetadata> {
     let mut sheets = std::collections::HashMap::new();
     let sheet_names = ExcelWorkbook::list_sheets(&conf)?;
     for sheet in sheet_names {
@@ -92,16 +93,15 @@ impl ExcelWorkbook {
     })
   }
 
-  pub fn open(path: String) -> Result<ExcelWorkbook, SubparError> {
+  pub fn open(path: String) -> Result<ExcelWorkbook> {
     match calamine::open_workbook(path.clone()) {
       Ok(wb) => Ok(ExcelWorkbook { reader: wb }),
-      Err(err) => Err(SubparError::InvalidPath(
-        format!("There was a problem opening the workbook: {:#?}", err).to_string(),
-      )),
+      Err(err) => Err(SubparError::InvalidPath)
+        .context(format!("There was a problem opening the workbook: {:#?}", err).to_string()),
     }
   }
 
-  pub fn read_sheet(conf: ExcelConfig, sheet_name: String) -> Result<super::Sheet, SubparError> {
+  pub fn read_sheet(conf: ExcelConfig, sheet_name: String) -> Result<super::Sheet> {
     let mut reader: ExcelReader = ExcelWorkbook::get_reader(&conf.path)?;
     match reader.worksheet_range(&sheet_name[..]) {
       Some(Ok(range)) => {
@@ -114,10 +114,8 @@ impl ExcelWorkbook {
         // Build the header hash
         let mut lookup: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         let header_vec = match rows.next() {
-          None => Err(SubparError::EmptyWorksheet(format!(
-            "Could not read empty worksheet '{}'",
-            sheet_name
-          )))?,
+          None => Err(SubparError::EmptyWorksheet)
+            .context(format!("Could not read empty worksheet '{}'", sheet_name))?,
           Some(row) => row
             .into_iter()
             .enumerate()

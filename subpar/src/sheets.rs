@@ -1,6 +1,7 @@
 //! Load tablular data from a Google Sheets worksheet
 
-use super::{CellType, SubparError};
+use super::{to_subpar_error, CellType, SubparError};
+use anyhow::{Context, Result};
 use log::debug;
 use std::borrow::Borrow;
 
@@ -23,11 +24,11 @@ pub struct SheetsWorkbook {
 }
 
 impl SheetsWorkbook {
-  pub fn list_sheets(conf: &SheetsConfig) -> Result<Vec<String>, SubparError> {
+  pub fn list_sheets(conf: &SheetsConfig) -> Result<Vec<String>> {
     let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), conf.workbook_id.clone().unwrap())
       .expect("Error opening the worksheet");
 
-    Ok(worksheet.list_sheets()?)
+    Ok(to_subpar_error!(worksheet.list_sheets()))
   }
 
   /// Create a key to row map from the worksheet metadata. This is how we figure out the location
@@ -35,7 +36,7 @@ impl SheetsWorkbook {
   fn get_metadata_keymap(
     worksheet: &sheets_db::SheetDB,
     sheet_id: i64,
-  ) -> Result<std::collections::HashMap<String, super::SheetRowId>, SubparError> {
+  ) -> Result<std::collections::HashMap<String, super::SheetRowId>> {
     // Load the key map
     let range = sheets_db::DeveloperMetadataLookup {
       location_type: None,
@@ -50,7 +51,7 @@ impl SheetsWorkbook {
       visibility: None,
     };
     let filters = vec![sheets_db::DataFilter::Lookup(range)];
-    let search_result = worksheet.search_metadata(filters)?;
+    let search_result = to_subpar_error!(worksheet.search_metadata(filters));
     let mut key_map = std::collections::HashMap::new();
     match search_result.matches {
       None => (),
@@ -85,16 +86,22 @@ impl SheetsWorkbook {
   pub fn update_workbook(
     conf: SheetsConfig,
     requests: Vec<sheets_db::BatchUpdateRequestItem>,
-  ) -> Result<Box<sheets_db::BatchUpdateResponse>, SubparError> {
-    let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), conf.workbook_id.clone().unwrap())?;
-    Ok(worksheet.batch_update(requests)?)
+  ) -> Result<Box<sheets_db::BatchUpdateResponse>> {
+    let worksheet = to_subpar_error!(sheets_db::SheetDB::open(
+      conf.auth.clone(),
+      conf.workbook_id.clone().unwrap()
+    ));
+    Ok(to_subpar_error!(worksheet.batch_update(requests)))
   }
 
-  pub fn read_metadata(conf: &SheetsConfig) -> Result<super::WorkbookMetadata, SubparError> {
+  pub fn read_metadata(conf: &SheetsConfig) -> Result<super::WorkbookMetadata> {
     let mut sheets = std::collections::HashMap::new();
-    let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), conf.workbook_id.clone().unwrap())?;
-    for sheet_name in worksheet.list_sheets()?.iter() {
-      let props = worksheet.get_sheet_properties(sheet_name.clone())?;
+    let worksheet = to_subpar_error!(sheets_db::SheetDB::open(
+      conf.auth.clone(),
+      conf.workbook_id.clone().unwrap()
+    ));
+    for sheet_name in to_subpar_error!(worksheet.list_sheets()).iter() {
+      let props = to_subpar_error!(worksheet.get_sheet_properties(sheet_name.clone()));
       let range = (
         props.grid_properties.row_count.clone() as usize,
         props.grid_properties.column_count.clone() as usize,
@@ -120,31 +127,27 @@ impl SheetsWorkbook {
     })
   }
 
-  pub fn read_sheet(conf: SheetsConfig, sheet_name: String) -> Result<super::Sheet, SubparError> {
+  pub fn read_sheet(conf: SheetsConfig, sheet_name: String) -> Result<super::Sheet> {
     let workbook_id = match conf.workbook_id {
       Some(id) => Ok(id),
-      None => Err(SubparError::SheetsError(
-        "Cannot read_sheet because no workbook ID was configured".to_string(),
-      )),
+      None => Err(SubparError::SheetsError)
+        .context("Cannot read_sheet because no workbook ID was configured"),
     }?;
     debug!(
       "Reading the sheet named '{}' in workbook '{}'",
       sheet_name, workbook_id
     );
 
-    let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), workbook_id)?;
-
-    let sheet = worksheet.get_sheet(sheet_name.clone())?;
+    let worksheet = to_subpar_error!(sheets_db::SheetDB::open(conf.auth.clone(), workbook_id));
+    let sheet = to_subpar_error!(worksheet.get_sheet(sheet_name.clone()));
     let value_range: &sheets_db::ValueRange = sheet.borrow();
     // debug!("Received data for range {:#?}", value_range.range);
     let mut rows = value_range.values.clone().into_iter();
     // Build the headers
     let mut lookup: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let header_vec = match rows.next() {
-      None => Err(SubparError::EmptyWorksheet(format!(
-        "Could not read empty worksheet '{}'",
-        sheet_name
-      )))?,
+      None => Err(SubparError::EmptyWorksheet)
+        .context(format!("Could not read empty worksheet '{}'", sheet_name))?,
       Some(row) => row
         .into_iter()
         .enumerate()

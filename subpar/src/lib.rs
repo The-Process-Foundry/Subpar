@@ -3,6 +3,7 @@
 Some macros to make using excel, google sheets and CSV easier.
 !*/
 
+use anyhow::{Context, Result};
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use std::collections::HashMap;
 
@@ -23,14 +24,14 @@ pub use errors::SubparError;
 
 /// A trait to define the generic tabular workbook API
 pub trait MetaWorkbook {
-  fn new(config: &WorkbookConfig) -> Result<Workbook, SubparError>;
-  fn open(config: &WorkbookConfig) -> Result<Workbook, SubparError>;
-  fn read_metadata(config: &WorkbookConfig) -> Result<WorkbookMetadata, SubparError>;
-  fn read_sheet(&self, sheet_name: String) -> Result<Sheet, SubparError>;
+  fn new(config: &WorkbookConfig) -> Result<Workbook>;
+  fn open(config: &WorkbookConfig) -> Result<Workbook>;
+  fn read_metadata(config: &WorkbookConfig) -> Result<WorkbookMetadata>;
+  fn read_sheet(&self, sheet_name: String) -> Result<Sheet>;
   fn update_workbook(
     &self,
     requests: Vec<sheets_db::BatchUpdateRequestItem>,
-  ) -> Result<Box<sheets_db::BatchUpdateResponse>, SubparError>;
+  ) -> Result<Box<sheets_db::BatchUpdateResponse>>;
 
   // write_sheet(&self)
   // fn insert_row(&self, sheet_name: String, row_number: i32)
@@ -159,7 +160,7 @@ pub struct Workbook {
 //   pub fn search_metadata(
 //     &self,
 //     filters: Vec<sheets_db::DataFilter>,
-//   ) -> Result<SheetMetadata, SubparError> {
+//   ) -> Result<SheetMetadata> {
 //     match &self.config {
 //       WorkbookConfig::Excel(_) => unimplemented!("Search Metadata is not implemented for Excel"),
 //       WorkbookConfig::CSV(_) => unimplemented!("Search Metadata is not implemented for CSV"),
@@ -178,19 +179,18 @@ impl Workbook {
   }
 }
 
-// Implemetation made to route the workbook to the proper code based on the workbook type
+// Implementation made to route the workbook to the proper code based on the workbook type
 impl MetaWorkbook for Workbook {
   /// Attempt to validate the config passed in and create workbook object ready to run
-  fn new(config: &WorkbookConfig) -> Result<Workbook, SubparError> {
+  fn new(config: &WorkbookConfig) -> Result<Workbook> {
     match config {
-      WorkbookConfig::Excel(_) => Err(SubparError::ReadOnly(
-        "Excel workbooks cannot be created, as they are currently read-only".to_string(),
-      )),
+      WorkbookConfig::Excel(_) => Err(SubparError::ReadOnly)
+        .context("Excel workbooks cannot be created, as they are currently read-only".to_string()),
       _ => unimplemented!(),
     }
   }
 
-  fn read_metadata(config: &WorkbookConfig) -> Result<WorkbookMetadata, SubparError> {
+  fn read_metadata(config: &WorkbookConfig) -> Result<WorkbookMetadata> {
     match config {
       WorkbookConfig::Excel(conf) => excel::ExcelWorkbook::read_metadata(&conf),
       WorkbookConfig::GoogleSheets(conf) => sheets::SheetsWorkbook::read_metadata(&conf),
@@ -199,7 +199,7 @@ impl MetaWorkbook for Workbook {
   }
 
   /// Open an existing workbook
-  fn open(config: &WorkbookConfig) -> Result<Workbook, SubparError> {
+  fn open(config: &WorkbookConfig) -> Result<Workbook> {
     let metadata = Workbook::read_metadata(&config)?;
     Ok(Workbook {
       metadata: metadata,
@@ -208,14 +208,14 @@ impl MetaWorkbook for Workbook {
   }
 
   // Read the worksheet
-  fn read_sheet(&self, sheet_name: String) -> Result<Sheet, SubparError> {
+  fn read_sheet(&self, sheet_name: String) -> Result<Sheet> {
     // sheet in metadata?
     // refresh metadata if notread_sheet
     match self.metadata.sheet_map.get(&sheet_name) {
-      None => Err(SubparError::UnknownSheet(format!(
+      None => Err(SubparError::UnknownSheet).context(format!(
         "The workbook does not contain a sheet named '{}'. Possible options: {:#?}",
         sheet_name, self.metadata.sheet_map
-      ))),
+      )),
       Some(_) => match &self.config {
         WorkbookConfig::Excel(conf) => {
           excel::ExcelWorkbook::read_sheet(conf.clone(), sheet_name.clone())
@@ -232,7 +232,7 @@ impl MetaWorkbook for Workbook {
   fn update_workbook(
     &self,
     requests: Vec<sheets_db::BatchUpdateRequestItem>,
-  ) -> Result<Box<sheets_db::BatchUpdateResponse>, SubparError> {
+  ) -> Result<Box<sheets_db::BatchUpdateResponse>> {
     match &self.config {
       WorkbookConfig::GoogleSheets(conf) => {
         sheets::SheetsWorkbook::update_workbook(conf.clone(), requests)
@@ -255,7 +255,7 @@ pub enum ExcelObject {
 
 /// Convert a row from a given table into the given struct
 pub trait SubparTable<SubClass = Self>: std::fmt::Debug + std::clone::Clone {
-  fn from_excel(from_obj: &ExcelObject) -> Result<SubClass, SubparError>;
+  fn from_excel(from_obj: &ExcelObject) -> Result<SubClass>;
   fn get_object_name() -> String;
   // fn get_key_hash() -> HashMap<String, String>;
 }
@@ -265,22 +265,23 @@ impl<U> SubparTable for Vec<U>
 where
   U: SubparTable,
 {
-  fn from_excel(excel_object: &ExcelObject) -> Result<Vec<U>, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<Vec<U>> {
     // let sheet_name = U::get_object_name();
     // println!("In vec::<{}>::from_excel", sheet_name);
 
     match excel_object {
       ExcelObject::Sheet(sheet) => {
         let mut result: Vec<U> = Vec::new();
+        // TODO: Turn this into a fold so we can aggregate errors
         for (i, row) in sheet.data.clone().iter().enumerate() {
           let value = U::from_excel(&to_row(row.clone(), &sheet.header_map));
-          match value.clone() {
-            Ok(x) => result.push(x),
+          match &value {
+            Ok(x) => result.push(x.clone()),
             err => {
               // TODO: Return the key, not just the row number
               let msg = format!("Error parsing row number {}: \n{:#?}", i, err);
               log::warn!("{}", msg);
-              value?;
+              // value.context(msg)
             }
           }
         }
@@ -299,14 +300,14 @@ impl<U> SubparTable for Option<U>
 where
   U: SubparTable,
 {
-  fn from_excel(excel_object: &ExcelObject) -> Result<Option<U>, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<Option<U>> {
     match excel_object {
       ExcelObject::Cell(cell) => match cell.data {
         CellType::Null => Ok(None),
         _ => match U::from_excel(&excel_object.clone()) {
           Ok(value) => Ok(Some(value)),
-          Err(err) => match err {
-            SubparError::NullValue(_) => Ok(None),
+          Err(err) => match err.root_cause().downcast_ref::<SubparError>() {
+            Some(SubparError::NullValue) => Ok(None),
             _ => Err(err),
           },
         },
@@ -321,18 +322,16 @@ where
 }
 
 impl SubparTable for String {
-  fn from_excel(excel_object: &ExcelObject) -> Result<String, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<String> {
     match excel_object {
       ExcelObject::Cell(cell) => match cell.data.clone() {
         CellType::String(value) => Ok(value.clone()),
         CellType::Number(value) => Ok(value.to_string()),
-        CellType::Null => Err(SubparError::NullValue(
-          "Empty strings are invalid for String type".to_string(),
-        )),
-        x => Err(SubparError::InvalidCellType(format!(
-          "Cannot turn {:?} into a String",
-          x
-        ))),
+        CellType::Null => Err(SubparError::NullValue)
+          .context("Empty strings are invalid for String type".to_string()),
+        x => {
+          Err(SubparError::InvalidCellType).context(format!("Cannot turn {:?} into a String", x))
+        }
       },
       _ => panic!("Tried to parse a string from a non-cell ExcelObject"),
     }
@@ -344,7 +343,7 @@ impl SubparTable for String {
 }
 
 impl SubparTable for NaiveDateTime {
-  fn from_excel(excel_object: &ExcelObject) -> Result<NaiveDateTime, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<NaiveDateTime> {
     // Excel sends back float and Google sheets is a string, so
     match f64::from_excel(excel_object) {
       Ok(excel_date) => {
@@ -360,9 +359,8 @@ impl SubparTable for NaiveDateTime {
           CellType::String(value) => {
             // assuming the default of m/d/y
             if value.len() == 0 {
-              Err(SubparError::NullValue(
-                "Received an empty DateTime to parse".to_string(),
-              ))?
+              Err(SubparError::NullValue)
+                .context("Received an empty DateTime to parse".to_string())?
             }
             let mut tokens: Vec<Result<u32, _>> =
               value.split("/").map(|token| token.parse()).collect();
@@ -385,7 +383,7 @@ impl SubparTable for NaiveDateTime {
                   value
                 );
                 log::error!("{}", msg);
-                Err(SubparError::ParsingError(msg))?
+                Err(SubparError::ParsingError).context(msg)?
               }
             }
           }
@@ -401,16 +399,15 @@ impl SubparTable for NaiveDateTime {
 }
 
 impl SubparTable for f64 {
-  fn from_excel(excel_object: &ExcelObject) -> Result<f64, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<f64> {
     match excel_object {
       ExcelObject::Cell(cell) => match &cell.data {
         CellType::String(value) => match value.parse::<f64>() {
           Ok(x) => Ok(x),
           Err(_) => {
             match value.len() {
-              0 => Err(SubparError::NullValue(
-                "Cannot convert an empty string into an f64".to_string(),
-              ))?,
+              0 => Err(SubparError::NullValue)
+                .context("Cannot convert an empty string into an f64".to_string())?,
               _ => (),
             }
             let cleaned = value.replace(',', "");
@@ -418,10 +415,9 @@ impl SubparTable for f64 {
           }
         },
         CellType::Number(value) => Ok(value.clone()),
-        x => Err(SubparError::InvalidCellType(format!(
-          "\n!!! Cannot turn {:?} into a f64",
-          x
-        ))),
+        x => {
+          Err(SubparError::InvalidCellType).context(format!("\n!!! Cannot turn {:?} into a f64", x))
+        }
       },
       _ => panic!("Tried to parse an f64 object from a non-cell ExcelObject"),
     }
@@ -433,18 +429,17 @@ impl SubparTable for f64 {
 }
 
 impl SubparTable for f32 {
-  fn from_excel(excel_object: &ExcelObject) -> Result<f32, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<f32> {
     match excel_object {
       ExcelObject::Cell(cell) => match &cell.data {
         CellType::String(value) => match value.parse::<f32>() {
           Ok(x) => Ok(x),
-          Err(err) => Err(SubparError::FloatParseError(format!("{:#?}", err))),
+          Err(err) => Err(SubparError::FloatParseError).context(format!("{:#?}", err)),
         },
         CellType::Number(value) => Ok(value.clone() as f32),
-        x => Err(SubparError::InvalidCellType(format!(
-          "\n!!! Cannot turn {:?} into a f32",
-          x
-        ))),
+        x => {
+          Err(SubparError::InvalidCellType).context(format!("\n!!! Cannot turn {:?} into a f32", x))
+        }
       },
       _ => panic!("Tried to parse an f32 object from a non-cell ExcelObject"),
     }
@@ -456,18 +451,17 @@ impl SubparTable for f32 {
 }
 
 impl SubparTable for i64 {
-  fn from_excel(excel_object: &ExcelObject) -> Result<i64, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<i64> {
     match excel_object {
       ExcelObject::Cell(cell) => match &cell.data {
         CellType::String(value) => match value.parse::<i64>() {
           Ok(x) => Ok(x),
-          Err(err) => Err(SubparError::FloatParseError(format!("{:#?}", err))),
+          Err(err) => Err(SubparError::FloatParseError).context(format!("{:#?}", err)),
         },
         CellType::Number(value) => Ok(value.round() as i64),
-        x => Err(SubparError::InvalidCellType(format!(
-          "\n!!! Cannot turn {:?} into a i64",
-          x
-        ))),
+        x => {
+          Err(SubparError::InvalidCellType).context(format!("\n!!! Cannot turn {:?} into a i64", x))
+        }
       },
       _ => panic!("Tried to parse an i64 object from a non-cell ExcelObject"),
     }
@@ -479,25 +473,23 @@ impl SubparTable for i64 {
 }
 
 impl SubparTable for i32 {
-  fn from_excel(excel_object: &ExcelObject) -> Result<i32, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<i32> {
     match excel_object {
       ExcelObject::Cell(cell) => match &cell.data {
         CellType::String(value) => {
           if value.len() == 0 {
-            Err(SubparError::NullValue(
-              "Received an empty string to parse into an i32".to_string(),
-            ))?
+            Err(SubparError::NullValue)
+              .context("Received an empty string to parse into an i32".to_string())?
           }
           match value.parse::<i32>() {
             Ok(x) => Ok(x),
-            Err(err) => Err(SubparError::FloatParseError(format!("{:#?}", err))),
+            Err(err) => Err(SubparError::FloatParseError).context(format!("{:#?}", err)),
           }
         }
         CellType::Number(value) => Ok(value.round() as i32),
-        x => Err(SubparError::InvalidCellType(format!(
-          "\n!!! Cannot turn {:?} into a i32",
-          x
-        ))),
+        x => {
+          Err(SubparError::InvalidCellType).context(format!("\n!!! Cannot turn {:?} into a i32", x))
+        }
       },
       _ => panic!("Tried to parse an i32 object from a non-cell ExcelObject"),
     }
@@ -509,18 +501,17 @@ impl SubparTable for i32 {
 }
 
 impl SubparTable for i16 {
-  fn from_excel(excel_object: &ExcelObject) -> Result<i16, SubparError> {
+  fn from_excel(excel_object: &ExcelObject) -> Result<i16> {
     match excel_object {
       ExcelObject::Cell(cell) => match &cell.data {
         CellType::String(value) => match value.parse::<i16>() {
           Ok(x) => Ok(x),
-          Err(err) => Err(SubparError::FloatParseError(format!("{:#?}", err))),
+          Err(err) => Err(SubparError::FloatParseError).context(format!("{:#?}", err)),
         },
         CellType::Number(value) => Ok(value.round() as i16),
-        x => Err(SubparError::InvalidCellType(format!(
-          "\n!!! Cannot turn {:?} into a i16",
-          x
-        ))),
+        x => {
+          Err(SubparError::InvalidCellType).context(format!("\n!!! Cannot turn {:?} into a i16", x))
+        }
       },
       _ => panic!("Tried to parse an i16 object from a non-cell ExcelObject"),
     }
@@ -531,42 +522,37 @@ impl SubparTable for i16 {
   }
 }
 
-pub fn cell_csv_to_vec(_cell: Cell) -> Result<Vec<String>, SubparError> {
-  Err(SubparError::NotImplemented(
-    "cell_csv_to_vec is not yet implemented".to_string(),
-  ))
+pub fn cell_csv_to_vec(_cell: Cell) -> Result<Vec<String>> {
+  Err(SubparError::NotImplemented).context("cell_csv_to_vec is not yet implemented".to_string())
 }
 
 /// Wrappers for the various types of Excel Resources so we can pass them around more easily
 ///
 /// This allows us to generically iterate through the conversions
 impl<'a> ExcelObject {
-  pub fn get_sheet(&'a self, sheet_name: String) -> Result<Self, SubparError> {
+  pub fn get_sheet(&'a self, sheet_name: String) -> Result<Self> {
     match self {
       ExcelObject::Workbook(wb) => Ok(ExcelObject::Sheet(
         wb.read_sheet(sheet_name).expect("Could not get sheet"),
       )),
-      _ => Err(SubparError::IncorrectExcelObject(
-        "Can only call get_sheet on ExcelObject::Workbook Objects".to_string(),
-      )),
+      _ => Err(SubparError::IncorrectExcelObject)
+        .context("Can only call get_sheet on ExcelObject::Workbook Objects".to_string()),
     }
   }
 
-  pub fn unwrap_cell(&'a self) -> Result<Cell, SubparError> {
+  pub fn unwrap_cell(&'a self) -> Result<Cell> {
     match self {
       ExcelObject::Cell(cell) => Ok(cell.clone()),
-      _ => Err(SubparError::IncorrectExcelObject(
-        "unwrap_cell expects a cell object but received something different".to_string(),
-      )),
+      _ => Err(SubparError::IncorrectExcelObject)
+        .context("unwrap_cell expects a cell object but received something different".to_string()),
     }
   }
 
-  pub fn unwrap_row(&'a self) -> Result<HashMap<String, Cell>, SubparError> {
+  pub fn unwrap_row(&'a self) -> Result<HashMap<String, Cell>> {
     match self {
       ExcelObject::Row(row) => Ok(row.clone()),
-      _ => Err(SubparError::IncorrectExcelObject(
-        "unwrap_row expects a row hash but received something different".to_string(),
-      )),
+      _ => Err(SubparError::IncorrectExcelObject)
+        .context("unwrap_row expects a row hash but received something different".to_string()),
     }
   }
 }
@@ -598,7 +584,7 @@ pub fn to_row(raw: Vec<Cell>, headers: &HashMap<String, usize>) -> ExcelObject {
   ExcelObject::Row(row_data)
 }
 
-pub fn get_cell(excel_object: ExcelObject, cell_name: String) -> Result<ExcelObject, SubparError> {
+pub fn get_cell(excel_object: ExcelObject, cell_name: String) -> Result<ExcelObject> {
   match excel_object {
     ExcelObject::Row(row) => match row.get(&cell_name) {
       Some(value) => Ok(ExcelObject::Cell(value.clone())),
@@ -610,9 +596,8 @@ pub fn get_cell(excel_object: ExcelObject, cell_name: String) -> Result<ExcelObj
           &cell_name,
           keys,
         );
-        Err(SubparError::UnknownColumn(
-          String::from("Could not find column named '") + &cell_name + "'",
-        ))
+        Err(SubparError::UnknownColumn)
+          .context(String::from("Could not find column named '") + &cell_name + "'")
       }
     },
     _ => panic!("Expected a row to pull a cell from. Fix the branch or the code"),

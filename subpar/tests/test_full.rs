@@ -1,13 +1,16 @@
 #[cfg(test)]
 extern crate subpar;
 
+use anyhow::{Context, Result};
 use log::debug;
 
 use chrono::NaiveDateTime;
-use subpar::{to_row, ExcelObject, MetaWorkbook, SheetMetadata, SubparError, SubparTable};
+use subpar::{
+  to_row, to_subpar_error, ExcelObject, MetaWorkbook, SheetMetadata, SubparError, SubparTable,
+};
 
 // Convert a cell to a json string
-pub fn cell_csv_to_vec(wrapped: &ExcelObject) -> Result<Vec<String>, SubparError> {
+pub fn cell_csv_to_vec(wrapped: &ExcelObject) -> Result<Vec<String>> {
   let row = wrapped
     .unwrap_row()
     .expect("There was an error unwrapping the object in cell_csv_to_vec");
@@ -111,7 +114,7 @@ impl Invoice {
   }
 
   /// Alias the fields
-  fn get_cell_by_header(&self, field_name: &str) -> Result<subpar::CellType, SubparError> {
+  fn get_cell_by_header(&self, field_name: &str) -> Result<subpar::CellType> {
     match &field_name[..] {
       "guid" | "Invoice ID" => Ok(subpar::CellType::String(self.guid.clone())),
       "organization" | "Organization" => Ok(subpar::CellType::String(self.organization.clone())),
@@ -120,10 +123,10 @@ impl Invoice {
         let value = self.created_on.format("%m/%d/%Y").to_string();
         Ok(subpar::CellType::String(value))
       }
-      _ => Err(SubparError::NotFound(format!(
+      _ => Err(SubparError::NotFound).context(format!(
         "Invoice does have a field known as '{}'",
         field_name
-      ))),
+      )),
     }
   }
   // fn to_row(&self) -> Vec<String> {
@@ -142,13 +145,12 @@ pub struct DB {
 // These are in the process of becoming macros themselves. Step one is to make the code work in the concrete
 // world before converting to an abstract.
 impl DB {
-  pub fn upsert_invoice(workbook: &subpar::Workbook, invoice: &Invoice) -> Result<(), SubparError> {
+  pub fn upsert_invoice(workbook: &subpar::Workbook, invoice: &Invoice) -> Result<()> {
     let metadata: &SheetMetadata = match workbook.metadata.sheet_map.get("invoices") {
       Some(metadata) => metadata,
-      None => Err(SubparError::NotFound(format!(
-        "Could not find metadata for {}",
-        "invoices"
-      )))?,
+      None => {
+        Err(SubparError::NotFound).context(format!("Could not find metadata for {}", "invoices"))?
+      }
     };
 
     let new_metadata = DB::update_metadata(workbook, "invoices".to_string())?;
@@ -175,11 +177,13 @@ impl DB {
           .iter()
           .map(|header| match invoice.get_cell_by_header(header) {
             Ok(x) => x,
-            Err(SubparError::NotFound(_)) => subpar::CellType::String("".to_string()),
-            Err(err) => unreachable!(format!(
-              "get_cell_by_header returned an impossible error:\n{:#?}",
-              err
-            )),
+            Err(err) => match err.root_cause().downcast_ref::<SubparError>() {
+              Some(SubparError::NotFound) => subpar::CellType::String("".to_string()),
+              _ => unreachable!(format!(
+                "get_cell_by_header returned an impossible error:\n{:#?}",
+                err
+              )),
+            },
           })
           .collect();
 
@@ -198,7 +202,10 @@ impl DB {
 
         match &workbook.config {
           subpar::WorkbookConfig::GoogleSheets(conf) => {
-            let worksheet = sheets_db::SheetDB::open(conf.auth.clone(), workbook.get_id())?;
+            let worksheet = to_subpar_error!(sheets_db::SheetDB::open(
+              conf.auth.clone(),
+              workbook.get_id()
+            ));
             let req = worksheet.append_values(values_range);
             log::debug!("req:\n{:#?}", req);
           }
@@ -227,14 +234,13 @@ impl DB {
   pub fn update_metadata(
     workbook: &subpar::Workbook,
     sheet_name: String,
-  ) -> Result<subpar::SheetMetadata, SubparError> {
+  ) -> Result<subpar::SheetMetadata> {
     debug!("Reconciling metadata");
     let metadata: &SheetMetadata = match workbook.metadata.sheet_map.get(&sheet_name) {
       Some(x) => x,
-      None => Err(SubparError::NotFound(format!(
-        "Could not find metadata for {}",
-        "invoices"
-      )))?,
+      None => {
+        Err(SubparError::NotFound).context(format!("Could not find metadata for {}", "invoices"))?
+      }
     };
 
     log::debug!("{} metadata.key_map:\n{:#?}", sheet_name, metadata.key_map);

@@ -84,15 +84,8 @@ fn fields_to_struct(fields: &syn::Fields) -> TokenStream {
     Fields::Named(ref fields) => {
       let iterator = fields.named.iter().map(|f| {
         let name = &f.ident;
-        let lit_name = id_to_lit(name);
         quote! {
-          #name: match #name {
-            Ok(x) => x,
-            Err(err) => {
-              let msg = format!("Error processing '{}':\n{:#?}", #lit_name, err);
-              Err(msg)?
-            }
-          }
+          #name
         }
       });
       quote! { #(#iterator),* }
@@ -183,6 +176,7 @@ fn parse_funcs(ast: &syn::DeriveInput) -> TokenStream {
     Fields::Named(ref fields) => {
       let iterator = fields.named.iter().map(|f| {
         let name = &f.ident;
+        let lit_name = id_to_lit(name);
         let field_type = get_field_type(&f.ty);
 
         let opts = FieldOptions::load_attributes(&f.attrs);
@@ -237,6 +231,10 @@ fn parse_funcs(ast: &syn::DeriveInput) -> TokenStream {
             ExcelObject::Sheet(_) => #field_from_excel(excel_object),
             #vec_matches
           };
+          let #name = match #name {
+            Ok(x) => x,
+            Err(_) => #name.context(format!("Error processing '{}'", #lit_name))?,
+          };
         }
       });
       quote! { #(#iterator)* }
@@ -265,7 +263,8 @@ pub fn from_sheet(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
   // loop worksheet - get row
   let gen = quote! {
     impl SubparTable for #name {
-      fn from_excel(excel_object: &ExcelObject) -> Result<#name, SubparError> {
+      fn from_excel(excel_object: &ExcelObject) -> anyhow::Result<#name> {
+        use anyhow::Context;
         #parse_funcs
         #return_obj
       }
