@@ -411,7 +411,13 @@ impl SubparTable for f64 {
               _ => (),
             }
             let cleaned = value.replace(',', "");
-            Ok(cleaned.parse::<f64>()?)
+            match cleaned.parse::<f64>() {
+              Ok(x) => Ok(x),
+              Err(_) => Err(SubparError::FloatParseError).context(format!(
+                "The value '{}' could not be turned into an f64",
+                value
+              )),
+            }
           }
         },
         CellType::Number(value) => Ok(value.clone()),
