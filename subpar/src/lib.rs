@@ -138,6 +138,7 @@ pub struct SheetMetadata {
 /// This is needed for items like CSV where row/column information disappears after it is read
 #[derive(Clone, Debug)]
 pub struct WorkbookMetadata {
+  pub name: String,
   pub sheet_map: std::collections::HashMap<String, SheetMetadata>,
   pub last_accessed: chrono::DateTime<Utc>,
 }
@@ -410,7 +411,7 @@ impl SubparTable for f64 {
                 .context("Cannot convert an empty string into an f64".to_string())?,
               _ => (),
             }
-            let cleaned = value.replace(',', "");
+            let cleaned = value.replace(',', "").replace('$', "");
             match cleaned.parse::<f64>() {
               Ok(x) => Ok(x),
               Err(_) => Err(SubparError::FloatParseError).context(format!(
@@ -568,7 +569,7 @@ pub fn to_row(raw: Vec<Cell>, headers: &HashMap<String, usize>) -> ExcelObject {
   let row_length = raw.len();
   for (key, i) in headers.iter() {
     // Sheets does not return square ranges so we have to test that the row is actually long enough
-    let value = match *i >= row_length {
+    let value = match *i >= row_length && row_length > 0 {
       true => {
         // log::debug!(
         //   "Got a header longer than the length: {} >= {}",

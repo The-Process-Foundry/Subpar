@@ -88,6 +88,7 @@ impl ExcelWorkbook {
     }
 
     Ok(super::WorkbookMetadata {
+      name: "Name not implemented for Excel".to_string(),
       sheet_map: sheets,
       last_accessed: chrono::Utc::now(),
     })

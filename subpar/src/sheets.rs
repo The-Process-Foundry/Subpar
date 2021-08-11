@@ -122,6 +122,7 @@ impl SheetsWorkbook {
     }
 
     Ok(super::WorkbookMetadata {
+      name: worksheet.sheet.properties.title,
       sheet_map: sheets,
       last_accessed: chrono::Utc::now(),
     })
