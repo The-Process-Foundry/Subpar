@@ -1,24 +1,26 @@
 use thiserror::Error;
 
 // FIXME: This is ugly, but this is the intermediate step to converting everything to use anyhow
-#[macro_export]
-macro_rules! to_subpar_error {
-  ($result:expr) => {
-    match $result {
-      Ok(x) => x,
-      Err(err) => {
-        let msg = format!("{:#?}", &err);
-        Err(<SubparError>::from(err)).context(msg)?
-      }
-    }
-  };
-}
+// #[macro_export]
+// macro_rules! to_subpar_error {
+//   ($result:expr) => {
+//     match $result {
+//       Ok(x) => x,
+//       Err(err) => {
+//         let msg = format!("{:#?}", &err);
+//         Err(<SubparError>::from(err)).context(msg)?
+//       }
+//     }
+//   };
+// }
 
 /// The full set of exceptions that can be raised at any step in this process
 #[derive(Debug, Clone, Error)]
 pub enum SubparError {
   #[error("GenericError")]
   GenericError,
+  #[error("Internal error converting one type to another")]
+  ConversionError,
   #[error("EmptyWorksheet")]
   EmptyWorksheet,
   #[error("IncorrectExcelObject")]

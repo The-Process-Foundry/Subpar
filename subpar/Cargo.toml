@@ -1,6 +1,6 @@
 [package]
 name = "subpar"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Dave Fogelson <dfogelson@fishheadlabs.com>"]
 license = "MIT"
 edition = "2018"
@@ -8,23 +8,45 @@ include = ["Cargo.toml", "src/*.rs", "crates-io.md", "README.md", "LICENSE-MIT"]
 description = "A set of traits and derives for working with tabular workbooks. It currently works read-only with excel and RW with google sheets and CSV. Currently being built for explicit use in the Process Foundry"
 
 
-[dependencies]
-subpar_derive = { path = "../subpar_derive" }
-chrono = "0.4.11"
-calamine = "0.15.5"
-log = "0.4.8"
-env_logger = "0.7.1"
-serde_json = "1.0.48"
-url = "2.1.1"
+[features]
+default = ["derive"]
+cartograph = []
+derive = []
 
+[dependencies]
+# Error creation/handling
+anyhow = "1.0.43"
+thiserror = "1.0.26"
+
+# Basic Logging
+log = "0.4.14"
+env_logger = "0.9.0"
+
+# DateTime
+chrono = "0.4.19"
+
+
+# Serialization
+serde = { version = "1.0.127", features = ["derive"] }
+serde_json = "1.0.66"
+
+# Unique identifiers
+uuid =  { version = "0.8.2", features = ["serde", "v4", "v5"] }
+
+# Web locations
+url = "2.2.2"
+
+# Google sheets accessor
 sheets_db = {path = "../../Gappi/sheets_db"}
 wrapi = {path="../../Wrapi"}
 yup-oauth2 = {path="../../yup-oauth2"}
 
+# Excel parser
+calamine = "0.18.0"
 
-# Error creation/handling
-anyhow = "1.0.32"
-thiserror = "1.0.20"
 
-uuid =  { version = "0.8", features = ["serde", "v4"] }
+# Macro for simplifying converting rows to structs/enums
+subpar_derive = { path = "../subpar_derive" }
 
+# Messaging platform
+cartographic = { path = "/home/dfogelson/Foundry/Cartographic"}

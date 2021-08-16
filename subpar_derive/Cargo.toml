@@ -14,14 +14,14 @@ name = "subpar_derive"
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0.1"
-syn = { version = "1.0.3", features = ["extra-traits"] }
-quote = "1.0.2"
-env_logger = "0.7.1"
+proc-macro2 = "1.0.28"
+syn = { version = "1.0.74", features = ["extra-traits"] }
+quote = "1.0.9"
+env_logger = "0.9.0"
 
 
 # Error creation/handling
-anyhow = "1.0.32"
+anyhow = "1.0.43"
 
 [dev-dependencies]
-syn = { version = "1.0.3", features = ["extra-traits"] }
+syn = { version = "1.0.74", features = ["extra-traits"] }
