@@ -1,4 +1,4 @@
 //! Work with CSV files
 
 pub mod instance;
-pub use instance::{Instance, Location};
+pub use instance::CsvWorkbook;

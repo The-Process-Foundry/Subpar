@@ -4,26 +4,58 @@
 
 use anyhow::Result;
 
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::base::instance::*;
 use crate::csv;
 
+/// Define the interface for a workbook instance
+///
+/// This maps directly with Action messages.
+/// THINK: Does the builder pattern make sense for this trait?
+pub trait SubparWorkbook: std::fmt::Debug {
+  /// Get an unique identifier based on the workbook
+  fn get_id(&self) -> Result<Uuid>;
+
+  //-- Actions
+
+  // /// This is a validation that the current config can be opened in the given mode
+  // /// Lock the workbook for use in the given mode
+  // fn open(&self, mode: Mode) -> Result<()>;
+
+  // /// Release the lock on the workbook
+  // fn close(&self) -> Result<()>
+
+  // /// Do an initial scan based on the given configuration
+  // fn init(&self) -> Result<State>;
+
+  // Compare the internal state with the reality
+  fn scan(&self, state: State) -> Result<State>;
+
+  // /// Add a new sheet
+  // add_sheet(&self, sheet_name: &str) -> Result<()>
+  //-- Data
+  //
+}
+
 /// A common accessor for a set of tabular data
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// This is a pre-defined list of SubparWorkbooks that is known how to
+#[derive(Debug)]
 pub enum WorkbookInstance {
   // Excel(excel::Config),
   // Excel360(excel360::Config),
   // GoogleSheets(sheets::Config),
-  CSV(csv::Instance),
+  CSV(csv::CsvWorkbook),
+  Custom(Box<dyn SubparWorkbook>),
 }
 
 impl WorkbookInstance {}
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Workbook {
   guid: Uuid,
+  // sheets: HashMap<&str, >
   /// Table Definition and options
   instance: WorkbookInstance,
   state: State,
@@ -36,26 +68,23 @@ impl std::fmt::Display for Workbook {
 }
 
 impl Workbook {
-  pub fn open_csv(path: &str, mode: Mode) -> Result<Workbook> {
+  pub fn open_csv(path: &str, _mode: Mode) -> Result<Workbook> {
     log::debug!("Opening A CSV at {:?}", path);
-    let location = csv::Location::new(path)?;
-    let inst = csv::Instance::new(location, mode)?;
-    Ok(Workbook {
+    let inst = csv::CsvWorkbook::new(path)?;
+    let wb = Workbook {
       guid: inst.get_id()?,
-      state: inst.get_state()?,
+      state: inst.scan(State::new())?,
       instance: WorkbookInstance::CSV(inst),
-    })
+    };
+    Ok(wb)
   }
 
   /// Initialize the workbook state based on its type and mode
   ///
   /// This validates the setting, gathers the metadata, and sets the initial cursor
-  pub fn init(&mut self) -> Result<Workbook> {
+  pub fn init(self) -> Result<Workbook> {
     match &self.instance {
-      WorkbookInstance::CSV(inst) => {
-        self.state = inst.get_state()?;
-        Ok(self.clone())
-      }
+      WorkbookInstance::CSV(_inst) => Ok(self),
       _ => unimplemented!("'Workbook::init' only implemented for CSV"),
     }
   }

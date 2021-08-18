@@ -19,6 +19,8 @@ use thiserror::Error;
 pub enum SubparError {
   #[error("GenericError")]
   GenericError,
+  #[error("An item being used as a key was not unique")]
+  DuplicateKey,
   #[error("Internal error converting one type to another")]
   ConversionError,
   #[error("EmptyWorksheet")]
@@ -27,6 +29,8 @@ pub enum SubparError {
   IncorrectExcelObject,
   #[error("InvalidCellType")]
   InvalidCellType,
+  #[error("Problem with the workbook location value")]
+  InvalidLocation,
   #[error("InvalidPath")]
   InvalidPath,
   #[error("FileReadOnly")]

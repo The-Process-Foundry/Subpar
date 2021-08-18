@@ -3,10 +3,10 @@
 //! Messages are an indirect method of communicating between components. This allows subpar to be
 //! operated remotely via API.
 
-use anyhow::Result;
+// use anyhow::Result;
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+// use uuid::Uuid;
 
 /// Commands a workbook knows how to accept
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]

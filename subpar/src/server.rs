@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 // ----------------------------- Event Parameters  -----------------------------
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SubparServer {
   config: (),
   handles: HashMap<Uuid, Workbook>,
@@ -35,7 +35,7 @@ impl SubparServer {
     }
   }
 
-  pub fn run(&self, act: Action) -> Result<()> {
+  pub fn run(&self, _act: Action) -> Result<()> {
     Ok(())
   }
 }

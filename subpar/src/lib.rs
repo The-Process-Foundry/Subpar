@@ -22,8 +22,7 @@ pub mod server;
 pub mod cartograph;
 
 pub mod prelude {
-
-  // So everything is identified uniquely
+  // Everything should be identified uniquely
   pub use uuid::Uuid;
 
   // The standard serializer derive macros
@@ -36,9 +35,12 @@ pub mod prelude {
   pub use errors::SubparError;
 
   pub use base::{
+    cell::{Cell, SubparCell},
     instance::{Mode, State},
     messages::{Action, Event},
-    workbook::{Workbook, WorkbookInstance},
+    row::{Row, SubparRow},
+    sheet::{Sheet, SubparSheet},
+    workbook::{SubparWorkbook, Workbook, WorkbookInstance},
   };
 
   #[cfg(feature = "cartography")]
