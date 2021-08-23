@@ -35,7 +35,7 @@ impl SubparServer {
     }
   }
 
-  pub fn run(&self, _act: Action) -> Result<()> {
+  pub fn run(&self, _act: Action) -> Result<(), SubparError> {
     Ok(())
   }
 }

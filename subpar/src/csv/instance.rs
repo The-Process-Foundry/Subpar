@@ -13,7 +13,7 @@ use helpers::*;
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 pub struct Options {
   delimiter: u8,
-  multisheet: bool,
+  has_headers: bool,
 }
 
 impl std::fmt::Display for Options {
@@ -26,7 +26,7 @@ impl Default for Options {
   fn default() -> Options {
     Options {
       delimiter: b',',
-      multisheet: false,
+      has_headers: true,
     }
   }
 }
@@ -108,12 +108,27 @@ pub mod helpers {
     Ok(result)
   }
 
+  /// Convert a Path/PathBuf to a string, failing if it can't
   pub fn path_to_str(path: &PathBuf) -> Result<&str> {
     path
       .to_str()
       .clone()
       .ok_or(SubparError::ConversionError)
       .context("csv::helpers::path_to_str could not convert file name to ascii")
+  }
+
+  /// Use a path to create a unique id
+  pub fn path_to_id(path: &PathBuf) -> Result<Uuid, SubparError> {
+    Ok(Uuid::new_v5(
+      &Uuid::NAMESPACE_OID,
+      ["csv", "|", path_to_str(path)?]
+        .iter()
+        .fold("".to_string(), |mut acc, item| {
+          acc.push_str(item);
+          acc
+        })
+        .as_bytes(),
+    ))
   }
 }
 
@@ -123,6 +138,12 @@ pub mod helpers {
 /// root directory
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct CsvWorkbook {
+  /// A unique identifier for the workbook
+  guid: Uuid,
+
+  /// A simple debugging/logging name
+  name: String,
+
   /// The default path for the individual "sheets"
   ///
   /// This is a canonical local directory where new sheets are written by default. The "scan"
@@ -149,7 +170,7 @@ impl std::fmt::Display for CsvWorkbook {
 }
 
 impl CsvWorkbook {
-  fn parse_directory(path: &str) -> Result<(PathBuf, Vec<PathBuf>)> {
+  fn parse_path(path: &str) -> Result<(PathBuf, Vec<PathBuf>)> {
     // FIXME: This only works if the directory exists. Either it needs to be added before creating
     //        the workbook, on write, or check harder
     let abs_path = helpers::canonicalize(path)?;
@@ -163,7 +184,9 @@ impl CsvWorkbook {
 
   /// Builds a new instance and validates the location
   pub fn new(path: &str) -> Result<CsvWorkbook> {
-    let (directory, csv_files) = CsvWorkbook::parse_directory(path)?;
+    let (directory, csv_files) = CsvWorkbook::parse_path(path)?;
+    let guid = path_to_id(&directory)?;
+    let name = guid.to_string();
 
     let mut sheets = HashMap::new();
     for file in csv_files {
@@ -179,6 +202,8 @@ impl CsvWorkbook {
     }
 
     Ok(CsvWorkbook {
+      guid,
+      name,
       directory,
       sheets,
       options: Options::new(),
@@ -190,23 +215,28 @@ impl CsvWorkbook {
     self.options.delimiter = delimeter;
     Ok(self.clone())
   }
+
+  /// Change the workbooks printable name
+  pub fn set_name(self, name: String) -> Result<CsvWorkbook> {
+    Ok(CsvWorkbook { name, ..self })
+  }
 }
 
 impl SubparWorkbook for CsvWorkbook {
+  /// Get the workbook's UUID
   fn get_id(&self) -> Result<Uuid> {
-    Ok(Uuid::new_v5(
-      &Uuid::NAMESPACE_OID,
-      ["csv", "|", path_to_str(&self.directory)?]
-        .iter()
-        .fold("".to_string(), |mut acc, item| {
-          acc.push_str(item);
-          acc
-        })
-        .as_bytes(),
-    ))
+    Ok(self.guid.clone())
   }
 
-  fn scan(&self, state: State) -> Result<State> {
-    Ok(state)
+  /// A pretty name for debugging/logging
+  ///
+  /// The default here is to use the guid
+  fn get_name(&self) -> Result<String> {
+    Ok(self.name.clone())
+  }
+
+  /// Return a list of registered sheet names
+  fn list_sheets(&self) -> Result<Vec<String>> {
+    Ok(self.sheets.keys().map(|key| key.clone()).collect())
   }
 }

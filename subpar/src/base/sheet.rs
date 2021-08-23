@@ -5,7 +5,7 @@
 use crate::prelude::*;
 use anyhow::Result;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Annotating an object as a Sheet
 ///
@@ -49,19 +49,19 @@ impl Headers {
   }
 
   /// Replace the current list of column names with a new one
-  pub fn set_headers(&self, _names: Vec<String>) -> Result<Headers> {
+  pub fn set_headers(&self, _names: Vec<String>) -> Result<Headers, SubparError> {
     unimplemented!("'set_headers' still needs to be implemented")
   }
 
-  pub fn append(&self, _name: String) -> Result<Headers> {
+  pub fn append(&self, _name: String) -> Result<Headers, SubparError> {
     unimplemented!("'set_headers' still needs to be implemented")
   }
 
-  pub fn insert(&self, _name: String, _position: usize) -> Result<Headers> {
+  pub fn insert(&self, _name: String, _position: usize) -> Result<Headers, SubparError> {
     unimplemented!("'insert' still needs to be implemented")
   }
 
-  pub fn alias(&self, _name: String, _alt: String) -> Result<Headers> {
+  pub fn alias(&self, _name: String, _alt: String) -> Result<Headers, SubparError> {
     unimplemented!("'insert' still needs to be implemented")
   }
 }
@@ -85,22 +85,22 @@ impl SheetMetadata {}
 ///
 /// This sets the expectation
 #[derive(Debug, Default)]
-pub struct RowTemplate {
+pub struct SheetTemplate {
   headers: Headers,
 }
 
-impl std::fmt::Display for RowTemplate {
+impl std::fmt::Display for SheetTemplate {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{:#?}", self)
   }
 }
 
-impl RowTemplate {}
+impl SheetTemplate {}
 
 #[derive(Debug, Default)]
 pub struct Sheet {
   name: String,
-  template: RowTemplate,
+  rows: HashSet<Uuid>,
   metadata: SheetMetadata,
   data: Option<Vec<Box<dyn SubparRow>>>,
 }
@@ -111,6 +111,24 @@ impl std::fmt::Display for Sheet {
   }
 }
 
-impl Sheet {}
+impl Sheet {
+  // Map a template
+}
 
 impl SubparSheet for Sheet {}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Reader {}
+
+impl std::fmt::Display for Reader {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{:#?}", self)
+  }
+}
+
+impl Reader {
+  /// Create a new instance
+  pub fn new() -> Reader {
+    unimplemented!("'Reader::new' is not implemented yet")
+  }
+}

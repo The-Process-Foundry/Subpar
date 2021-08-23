@@ -2,6 +2,12 @@
 //!
 //!
 
+// Features needed to enable the ? handling of ErrorGroups
+#![feature(try_trait_v2)]
+#![feature(control_flow_enum)]
+#![feature(never_type)]
+#![feature(box_into_inner)]
+
 #[doc(hidden)]
 pub use subpar_derive::SubparTable;
 
@@ -22,6 +28,12 @@ pub mod server;
 pub mod cartograph;
 
 pub mod prelude {
+  pub use anyhow::Context;
+
+  // Make all the types safe to use
+  pub use std::borrow::{Borrow, BorrowMut};
+  pub use std::rc::Rc;
+
   // Everything should be identified uniquely
   pub use uuid::Uuid;
 
@@ -32,15 +44,16 @@ pub mod prelude {
   pub use crate::{base, csv, errors, server};
 
   // Everything should be converting to a SubparError
-  pub use errors::SubparError;
+  pub use errors::{ErrorGroup, SplitResult, SubparError};
 
   pub use base::{
     cell::{Cell, SubparCell},
-    instance::{Mode, State},
+    instance::{Mode, SubparWorkbook},
     messages::{Action, Event},
     row::{Row, SubparRow},
     sheet::{Sheet, SubparSheet},
-    workbook::{SubparWorkbook, Workbook, WorkbookInstance},
+    state::State,
+    workbook::Workbook,
   };
 
   #[cfg(feature = "cartography")]

@@ -1,5 +1,8 @@
 //! Generic items used regardless of tabular data
 
+// Metadata information for a workbook
+pub mod state;
+
 // Data definitions of a generic workbook
 pub mod workbook;
 
