@@ -20,13 +20,13 @@ pub struct Headers {
   /// A name to column lookup
   ///
   /// This is derived from the "ordered" field
-  values: HashMap<String, Option<usize>>,
+  order_map: HashMap<String, Option<usize>>,
 
-  /// Alternate header names
+  /// Alternate header names each template may use
   ///
   /// Sometimes the incoming file may have different names for the same column, so we change the
   /// lookup
-  aliases: HashMap<String, String>,
+  aliases: HashMap<Uuid, HashMap<String, String>>,
 
   /// A complete list of headers
   ///
@@ -97,12 +97,23 @@ impl std::fmt::Display for SheetTemplate {
 
 impl SheetTemplate {}
 
+/// Abstract data about a sheet
+///
+/// This tells a reader/writer how the table should look
+// THINK: Is cached data useful?
 #[derive(Debug, Default)]
 pub struct Sheet {
+  /// The name the workbook knows the sheet by
   name: String,
-  rows: HashSet<Uuid>,
-  metadata: SheetMetadata,
-  data: Option<Vec<Box<dyn SubparRow>>>,
+
+  /// Templates that are associated with this sheet and the modes allowed with them
+  ///
+  /// This is merely a lookup and the template will need to be passed in again
+  templates: HashMap<Uuid, HashSet<Mode>>,
+
+  /// An amalgam of all the information known about the sheet data
+  metadata: Option<SheetMetadata>,
+  // data: Option<Vec<Box<dyn SubparRow>>>,
 }
 
 impl std::fmt::Display for Sheet {
@@ -113,6 +124,19 @@ impl std::fmt::Display for Sheet {
 
 impl Sheet {
   // Map a template
+  pub fn new(name: &String) -> Sheet {
+    Sheet {
+      name: name.clone(),
+      templates: HashMap::new(),
+      metadata: None,
+    }
+  }
+
+  /// Add a new template to the sheet
+  pub fn apply_template<Row: SubparRow>(&self) -> Result<()> {
+    let template_id = Row::get_id();
+    unimplemented!("'apply_sheet' is not implemented yet")
+  }
 }
 
 impl SubparSheet for Sheet {}

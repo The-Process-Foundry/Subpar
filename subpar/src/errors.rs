@@ -48,10 +48,12 @@ where
     let mut success = vec![];
     let mut error = ErrorGroup::new();
 
-    iter.map(|item| match func(item) {
-      Ok(val) => success.push(val),
-      Err(err) => error.push(err),
-    });
+    for item in iter {
+      match func(item) {
+        Ok(val) => success.push(val),
+        Err(err) => error.push(err),
+      }
+    }
 
     SplitResult {
       success,
@@ -72,68 +74,6 @@ where
     }
   }
 }
-
-/*
-TODO: Move this code into anyhow and figure out how to make it work
-/// Handle the ? operations for SplitResult
-///
-/// This is experimental, but handy enough so I'm going to use the current version, as defined here
-/// Current implementation: https://github.com/rust-lang/rfcs/pull/1859
-/// In progress V2 https://github.com/rust-lang/rust/issues/84277
-/// Example: https://rust-lang.github.io/rfcs/3058-try-trait-v2.html
-
-
-use std::ops::{ControlFlow, FromResidual, Try};
-
-
-impl<T, E> Try for SplitResult<T, E>
-where
-  T: std::fmt::Debug,
-  E: std::fmt::Debug,
-{
-  type Output = Vec<T>;
-  type Residual = <Result<T, SubparError> as Try>::Residual;
-
-  fn from_output(output: Self::Output) -> Self {
-    SplitResult {
-      success: output,
-      error: None,
-    }
-  }
-
-  fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
-    match self.error {
-      Some(err) => ControlFlow::Break(Err(From::from(err))),
-      None => ControlFlow::Continue(self.success),
-    }
-  }
-}
-
-impl<T, E> FromResidual<Result<!, SubparError>> for SplitResult<T, E>
-where
-  T: std::fmt::Debug,
-  E: std::fmt::Debug + From<SubparError>,
-{
-  fn from_residual(residual: Result<!, E>) -> Self {
-    match residual {
-      Err(e) => SplitResult {
-        success: vec![],
-        error: Some(From::from(e)),
-      },
-    }
-  }
-}
-
-impl From<SubparError> for ErrorGroup<anyhow::Error> {
-  fn from(err: SubparError) -> Self {
-    match &err {
-      SubparError::ErrorList(e) => Box::into_inner(e.to_owned()),
-      _ => ErrorGroup { errors: vec![err] },
-    }
-  }
-}
-
-*/
 
 /// An error accumulator
 ///
@@ -156,6 +96,17 @@ impl<E> ErrorGroup<E> {
 
   pub fn push(&mut self, error: E) -> () {
     self.errors.push(error);
+  }
+
+  /// Pull the error out from the result and append it to the group
+  pub fn extract_err<T, F: Into<E>>(&mut self, result: Result<T, F>) -> Result<T, ()> {
+    match result {
+      Ok(t) => Ok(t),
+      Err(err) => {
+        self.push(err.into());
+        Err(())
+      }
+    }
   }
 
   pub fn len(&self) -> usize {
@@ -245,6 +196,8 @@ pub enum SubparError {
   WorkbookMismatch,
   #[error("ParsingError")]
   ParsingError,
+  #[error("There a problem with locking an object for read/write due to an uncaught error")]
+  RwLockError,
 }
 
 impl SubparError {
@@ -297,10 +250,22 @@ impl From<anyhow::Error> for SubparError {
   }
 }
 
+impl From<std::sync::PoisonError<crate::prelude::State>> for SubparError {
+  fn from(_err: std::sync::PoisonError<crate::prelude::State>) -> SubparError {
+    SubparError::RwLockError
+  }
+}
+
+impl From<serde_json::Error> for SubparError {
+  fn from(err: serde_json::Error) -> SubparError {
+    unimplemented!("'' still needs to be implemented")
+  }
+}
+
 /// Pausing on this, as it currently works
 impl<E> From<ErrorGroup<E>> for SubparError {
   fn from(err: ErrorGroup<E>) -> SubparError {
-    let mut group = ErrorGroup::new();
+    let group = ErrorGroup::new();
 
     for _x in err.errors {
       // match x.downcast::<SubparError>() {
@@ -340,3 +305,65 @@ impl From<ErrorGroup<SubparError>> for SubparError {
 //     SubparError::ErrorList(Box::new(converted))
 //   }
 // }
+
+/*
+TODO: Move this code into anyhow and figure out how to make it work
+/// Handle the ? operations for SplitResult
+///
+/// This is experimental, but handy enough so I'm going to use the current version, as defined here
+/// Current implementation: https://github.com/rust-lang/rfcs/pull/1859
+/// In progress V2 https://github.com/rust-lang/rust/issues/84277
+/// Example: https://rust-lang.github.io/rfcs/3058-try-trait-v2.html
+
+
+use std::ops::{ControlFlow, FromResidual, Try};
+
+
+impl<T, E> Try for SplitResult<T, E>
+where
+  T: std::fmt::Debug,
+  E: std::fmt::Debug,
+{
+  type Output = Vec<T>;
+  type Residual = <Result<T, SubparError> as Try>::Residual;
+
+  fn from_output(output: Self::Output) -> Self {
+    SplitResult {
+      success: output,
+      error: None,
+    }
+  }
+
+  fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
+    match self.error {
+      Some(err) => ControlFlow::Break(Err(From::from(err))),
+      None => ControlFlow::Continue(self.success),
+    }
+  }
+}
+
+impl<T, E> FromResidual<Result<!, SubparError>> for SplitResult<T, E>
+where
+  T: std::fmt::Debug,
+  E: std::fmt::Debug + From<SubparError>,
+{
+  fn from_residual(residual: Result<!, E>) -> Self {
+    match residual {
+      Err(e) => SplitResult {
+        success: vec![],
+        error: Some(From::from(e)),
+      },
+    }
+  }
+}
+
+impl From<SubparError> for ErrorGroup<anyhow::Error> {
+  fn from(err: SubparError) -> Self {
+    match &err {
+      SubparError::ErrorList(e) => Box::into_inner(e.to_owned()),
+      _ => ErrorGroup { errors: vec![err] },
+    }
+  }
+}
+
+*/

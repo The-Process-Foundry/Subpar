@@ -39,7 +39,7 @@ impl Default for ConnectionState {
 /// This is the meta-data of the workbook
 ///
 /// This is where we keep the generic information about sheets, columns, and options for use with
-/// all workbook functions.
+/// all workbook components.
 #[derive(Debug, Default)]
 pub struct State {
   /// A workbook name for debugging/logging
@@ -52,7 +52,7 @@ pub struct State {
   active_sheet: Option<String>,
 
   /// All the known sheets in the workbook, and their underlying metadata (if available)
-  sheets: HashMap<String, Option<Rc<dyn SubparSheet>>>,
+  sheets: HashMap<String, Sheet>,
 
   /// Alternate names a sheet can be known by
   aliases: HashMap<String, String>,
@@ -70,7 +70,7 @@ impl State {
       name,
       connection: ConnectionState::New,
       active_sheet: None,
-      sheets: HashMap::<String, Option<Rc<dyn SubparSheet>>>::new(),
+      sheets: HashMap::<String, Sheet>::new(),
       aliases: HashMap::<String, String>::new(),
     }
   }
@@ -80,13 +80,38 @@ impl State {
     self.sheets.keys().map(|key| key.clone()).collect()
   }
 
-  pub fn add_sheet(&mut self, name: String, sheet: Option<Rc<dyn SubparSheet>>) -> Result<()> {
-    match self.sheets.insert(name.clone(), sheet.to_owned()) {
+  /// Let the workbook know about a new sheet
+  pub fn add_sheet(&mut self, name: String, sheet: Option<Sheet>) -> Result<()> {
+    match self
+      .sheets
+      .insert(name.clone(), sheet.unwrap_or(Sheet::new(&name)))
+    {
       None => Ok(()),
       Some(_) => Err(SubparError::DuplicateKey).context(format!(
         "A sheet with the name {} already exists in the workbook {}",
         name, self.name,
       )),
     }
+  }
+
+  /// Get or create a mutable blank sheet
+  ///
+  /// This gets a reference to the contents of the RC. If not found
+  fn get_sheet(&mut self, sheet_name: &String) -> Result<&Sheet> {
+    let sheet = self
+      .sheets
+      .get(sheet_name)
+      .ok_or(SubparError::NotFound)
+      .context(format!("Could not find sheet '{}'", sheet_name))?;
+    Ok(sheet)
+  }
+
+  /// Apply a template to a sheet
+  pub fn apply_template<Row: SubparRow>(&mut self, sheet_name: &String) -> Result<()> {
+    let sheet = self.get_sheet(sheet_name)?;
+
+    sheet.apply_template::<Row>();
+
+    Ok(())
   }
 }

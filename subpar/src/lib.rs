@@ -27,6 +27,9 @@ pub mod server;
 #[cfg(feature = "cartography")]
 pub mod cartograph;
 
+// Some macros I use everywhere. To be moved to other projects
+pub mod macros;
+
 pub mod prelude {
   pub use anyhow::Context;
 
@@ -43,15 +46,17 @@ pub mod prelude {
   // Simple alias so we don't have to use crate::
   pub use crate::{base, csv, errors, server};
 
+  pub use crate::macros::use_all_macros::*;
+
   // Everything should be converting to a SubparError
   pub use errors::{ErrorGroup, SplitResult, SubparError};
 
   pub use base::{
-    cell::{Cell, SubparCell},
+    cell::Cell,
     instance::{Mode, SubparWorkbook},
     messages::{Action, Event},
     row::{Row, SubparRow},
-    sheet::{Sheet, SubparSheet},
+    sheet::{Sheet, SheetTemplate, SubparSheet},
     state::State,
     workbook::Workbook,
   };

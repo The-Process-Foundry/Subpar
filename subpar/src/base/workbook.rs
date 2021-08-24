@@ -5,7 +5,24 @@
 use crate::prelude::*;
 use anyhow::{Context, Result};
 
-use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::RwLock;
+
+/// Mutably borrow the state or sheet
+macro_rules! borrow {
+  ($item:expr) => {
+    $item.read().or(Err(SubparError::RwLockError))?
+  };
+  ($var:expr, $item:expr) => {
+    let $var = borrow!($item);
+  };
+  ("r", $var:expr, $item:expr) => {
+    borrow!($var, $item)
+  };
+  ("w", $var:ident, $item:expr) => {
+    let mut $var = $item.write().or(Err(SubparError::RwLockError))?;
+  };
+}
 
 /// A meta-parameter for creating a workbook
 #[derive(Debug)]
@@ -22,13 +39,15 @@ pub enum BuildParams<'a> {
 #[derive(Debug)]
 pub struct Workbook {
   guid: Uuid,
-  /// Sheet objects organized by name
-  ///
-  /// These are initialized Just in Time as getting the metadata for them can be a bit heavy.
-  // sheets: HashMap<String, Option<Rc<Sheet>>>,
+
+  /// Sheet objects organized by a pretty name
+  sheets: HashMap<String, Rc<Sheet>>,
+
   /// A typed workbook
   instance: Rc<dyn SubparWorkbook>,
-  state: RefCell<State>,
+
+  /// Management info of the included sheets and facilitator of intra-workbook communication
+  state: RwLock<State>,
 }
 
 impl std::fmt::Display for Workbook {
@@ -39,7 +58,7 @@ impl std::fmt::Display for Workbook {
 
 impl Workbook {
   /// Create a new workbook
-  pub fn new(params: BuildParams) -> Result<Workbook, SubparError> {
+  pub fn new(params: BuildParams) -> Result<Workbook> {
     let instance = match params {
       BuildParams::CSV(path) => Rc::new(csv::CsvWorkbook::new(path)?),
       BuildParams::Built(instance) => instance,
@@ -47,13 +66,11 @@ impl Workbook {
 
     let state = State::new(instance.get_name()?);
 
-    // This line is needed because borrow cannot be chained
-    let inst: &dyn SubparWorkbook = instance.borrow();
-
     let mut wb = Workbook {
-      guid: inst.get_id()?,
-      instance,
-      state: RefCell::new(state),
+      guid: instance.get_id()?,
+      instance: instance.to_owned(),
+      sheets: HashMap::new(),
+      state: RwLock::new(state),
     };
 
     wb.init()?;
@@ -65,7 +82,7 @@ impl Workbook {
   ///
   /// This validates the setting, gathers the metadata, and sets the initial cursor
   fn init(&mut self) -> Result<()> {
-    let mut state = self.state.borrow_mut();
+    borrow!("w", state, self.state);
     let inst: &dyn SubparWorkbook = self.instance.borrow();
 
     // Get the first glance at the sheets, no deep scans
@@ -83,23 +100,43 @@ impl Workbook {
   }
 
   /// Get a list of the currently known sheet names
-  pub fn list_sheets(&mut self) -> Vec<String> {
-    let state = self.state.borrow();
-    state.list_sheets()
+  pub fn list_sheets(&mut self) -> Result<Vec<String>> {
+    Ok(borrow!(self.state).list_sheets())
   }
 
   /// Quickly read a full sheet and return
-  pub fn slurp<Row: SubparRow>(&mut self, sheet: String) -> SplitResult<Row, SubparError> {
-    SplitResult::new()
+  ///
+  /// THINK: Should this return rows or the actual split result? I lean toward the latter as I
+  /// usually want to do some post-processing after reading, even if some errors are acceptable
+  pub fn slurp<Row: SubparRow>(
+    &mut self,
+    sheet_name: &String,
+  ) -> Result<SplitResult<Row, SubparError>> {
+    log::debug!("Starting to slurp {}", sheet_name);
+
+    borrow!("w", state, self.state);
+
+    // Map the row type to the sheet name
+    state.apply_template::<Row>(sheet_name)?;
+
+    // let reader = sheet.new_reader();
+    Ok(SplitResult::new())
   }
 
-  /// A quick way to slurp a CSV file
+  /// Write a list of rows to a sheet, replacing the existing data
+  ///
+  /// This is for quick and dirty writing tables with default options
+  pub fn dump<Row: SubparRow>(&mut self, _sheet_name: String, _data: Vec<Row>) -> Result<()> {
+    unimplemented!("'Workbook::dump' is not implemented yet")
+  }
+
+  /// A simple way read a CSV file
   pub fn read_csv<Row: SubparRow>(path: &str) -> Result<Vec<Row>, SubparError> {
     let mut wb = Workbook::new(BuildParams::CSV(path))?;
     log::debug!("New Workbook in read_csv: {:?}", wb);
 
     // Check to make sure there is only one sheet
-    let mut sheets = wb.list_sheets();
+    let mut sheets = wb.list_sheets()?;
     let sheet_name = match sheets.len() {
       0 => Err(SubparError::NotFound)
         .context(format!("read_csv could not find any sheets at {}", path)),
@@ -111,7 +148,7 @@ impl Workbook {
     }?;
 
     log::debug!("Reading the CSV from sheet '{}'", sheet_name);
-    let rows: SplitResult<Row, SubparError> = wb.slurp::<Row>(sheet_name);
+    let rows: SplitResult<Row, SubparError> = wb.slurp::<Row>(&sheet_name)?;
     let result: Result<Vec<Row>, SubparError> = rows.as_result();
     Ok(result?)
   }
