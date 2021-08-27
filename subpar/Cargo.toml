@@ -50,3 +50,6 @@ subpar_derive = { path = "../subpar_derive" }
 
 # Messaging platform
 cartographic = { path = "/home/dfogelson/Foundry/Cartographic"}
+
+# Csv Module
+csv = "1.1.6"

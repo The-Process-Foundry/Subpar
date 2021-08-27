@@ -6,6 +6,7 @@ use crate::prelude::*;
 use anyhow::{Context, Result};
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::sync::RwLock;
 
 /// Mutably borrow the state or sheet
@@ -13,10 +14,10 @@ macro_rules! borrow {
   ($item:expr) => {
     $item.read().or(Err(SubparError::RwLockError))?
   };
-  ($var:expr, $item:expr) => {
+  ($var:ident, $item:expr) => {
     let $var = borrow!($item);
   };
-  ("r", $var:expr, $item:expr) => {
+  ("r", $var:ident, $item:expr) => {
     borrow!($var, $item)
   };
   ("w", $var:ident, $item:expr) => {
@@ -104,6 +105,12 @@ impl Workbook {
     Ok(borrow!(self.state).list_sheets())
   }
 
+  // /// Get a file modifier reader/writer for the given sheet
+  // pub fn open(&self, sheet_name: &String, mode: Mode) -> Result<()> {
+  //   borrow!("w", state, self.state);
+  //   Ok(())
+  // }
+
   /// Quickly read a full sheet and return
   ///
   /// THINK: Should this return rows or the actual split result? I lean toward the latter as I
@@ -117,10 +124,15 @@ impl Workbook {
     borrow!("w", state, self.state);
 
     // Map the row type to the sheet name
-    state.apply_template::<Row>(sheet_name)?;
+    state.add_template::<Row>(sheet_name, vec![Mode::Read])?;
 
-    // let reader = sheet.new_reader();
-    Ok(SplitResult::new())
+    // Open the sheet in read mode
+    let reader = state.open_read(sheet_name)?;
+
+    Ok(SplitResult::map(reader, |line| match line {
+      Ok(row) => TryFrom::try_from(row),
+      Err(err) => Err(err),
+    }))
   }
 
   /// Write a list of rows to a sheet, replacing the existing data
@@ -131,7 +143,7 @@ impl Workbook {
   }
 
   /// A simple way read a CSV file
-  pub fn read_csv<Row: SubparRow>(path: &str) -> Result<Vec<Row>, SubparError> {
+  pub fn read_csv<Row: SubparRow>(path: &str) -> Result<Vec<Row>> {
     let mut wb = Workbook::new(BuildParams::CSV(path))?;
     log::debug!("New Workbook in read_csv: {:?}", wb);
 
@@ -173,14 +185,14 @@ impl WorkbookInstance {}
 ///
 /// All worksheets are
 pub trait MetaWorkbook {
-  fn new(config: &WorkbookInstance) -> Result<Workbook, SubparError>;
-  fn open(config: &WorkbookInstance) -> Result<Workbook, SubparError>;
-  fn read_metadata(config: &WorkbookInstance) -> Result<WorkbookMetadata, SubparError>;
-  fn read_sheet(&self, sheet_name: String) -> Result<Sheet, SubparError>;
+  fn new(config: &WorkbookInstance) -> Result<Workbook>;
+  fn open(config: &WorkbookInstance) -> Result<Workbook>;
+  fn read_metadata(config: &WorkbookInstance) -> Result<WorkbookMetadata>;
+  fn read_sheet(&self, sheet_name: String) -> Result<Sheet>;
   fn update_workbook(
     &self,
     requests: Vec<sheets_db::BatchUpdateRequestItem>,
-  ) -> Result<Box<sheets_db::BatchUpdateResponse>, SubparError>;
+  ) -> Result<Box<sheets_db::BatchUpdateResponse>>;
 
   // write_sheet(&self)
   // fn insert_row(&self, sheet_name: String, row_number: i32)

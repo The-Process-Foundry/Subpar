@@ -14,17 +14,6 @@ pub mod use_all_macros {
 /// # use subpar::ok_or;
 /// # use anyhow::{anyhow, Context, Result};
 ///
-/// # fn test_error(result: Result<&str>, as_str: &str) {
-/// #   match &result {
-/// #     Err(err) => {
-/// #        let value = format!("{:?}", err);
-/// #        println!("{}", value);
-/// #        assert_eq!(value, as_str.to_string());
-/// #        println!("{:#?}", result)
-/// #      },
-/// #     Ok(_) => panic!("There was no error: {:#?}", result)
-/// #   }
-/// # }
 ///
 /// let result: Result<&str> = ok_or!(
 ///   Some("Test1"),
@@ -51,6 +40,19 @@ pub mod use_all_macros {
 ///   "Value2"
 /// );
 /// # test_error(result, "A context block with extra info - Ctx1: Value1, Ctx2: Value2\n\nCaused by:\n    The Error");
+///
+/// # // A quick result tester
+/// # fn test_error(result: Result<&str>, as_str: &str) {
+/// #   match &result {
+/// #     Err(err) => {
+/// #        let value = format!("{:?}", err);
+/// #        println!("{}", value);
+/// #        assert_eq!(value, as_str.to_string());
+/// #        println!("{:#?}", result)
+/// #      },
+/// #     Ok(_) => panic!("There was no error: {:#?}", result)
+/// #   }
+/// # }
 /// ```
 #[macro_export]
 macro_rules! ok_or {

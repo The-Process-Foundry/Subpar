@@ -3,7 +3,7 @@
 //!
 
 use crate::prelude::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use std::collections::{HashMap, HashSet};
 
@@ -49,19 +49,19 @@ impl Headers {
   }
 
   /// Replace the current list of column names with a new one
-  pub fn set_headers(&self, _names: Vec<String>) -> Result<Headers, SubparError> {
+  pub fn set_headers(&self, _names: Vec<String>) -> Result<Headers> {
     unimplemented!("'set_headers' still needs to be implemented")
   }
 
-  pub fn append(&self, _name: String) -> Result<Headers, SubparError> {
+  pub fn append(&self, _name: String) -> Result<Headers> {
     unimplemented!("'set_headers' still needs to be implemented")
   }
 
-  pub fn insert(&self, _name: String, _position: usize) -> Result<Headers, SubparError> {
+  pub fn insert(&self, _name: String, _position: usize) -> Result<Headers> {
     unimplemented!("'insert' still needs to be implemented")
   }
 
-  pub fn alias(&self, _name: String, _alt: String) -> Result<Headers, SubparError> {
+  pub fn alias(&self, _name: String, _alt: String) -> Result<Headers> {
     unimplemented!("'insert' still needs to be implemented")
   }
 }
@@ -101,19 +101,33 @@ impl SheetTemplate {}
 ///
 /// This tells a reader/writer how the table should look
 // THINK: Is cached data useful?
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Sheet {
   /// The name the workbook knows the sheet by
+  ///
+  /// In GUI based workbooks such as Excel and Sheets this is the name on the tab. For CSV, it is
+  /// the file stem (the piece before .csv)
   name: String,
+
+  /// This is the expectations for the given sheet
+  ///
+  /// This can either be calculated from the registered templates or created manually
+  base: Option<SheetTemplate>,
 
   /// Templates that are associated with this sheet and the modes allowed with them
   ///
-  /// This is merely a lookup and the template will need to be passed in again
-  templates: HashMap<Uuid, HashSet<Mode>>,
+  /// This is merely a lookup and the template will need to be passed in. All data from the source
+  /// is consumed and the untracked data received is thrown out with the row
+  _templates: HashMap<Uuid, HashSet<Mode>>,
 
   /// An amalgam of all the information known about the sheet data
-  metadata: Option<SheetMetadata>,
-  // data: Option<Vec<Box<dyn SubparRow>>>,
+  _metadata: Option<SheetMetadata>,
+}
+
+impl std::fmt::Debug for Sheet {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("Sheet").field("name", &self.name).finish()
+  }
 }
 
 impl std::fmt::Display for Sheet {
@@ -127,22 +141,65 @@ impl Sheet {
   pub fn new(name: &String) -> Sheet {
     Sheet {
       name: name.clone(),
-      templates: HashMap::new(),
-      metadata: None,
+      base: None,
+      _templates: HashMap::new(),
+      _metadata: None,
     }
   }
 
-  /// Add a new template to the sheet
-  pub fn apply_template<Row: SubparRow>(&self) -> Result<()> {
+  /// Sets the base template of the sheet
+  pub fn set_base<Row: SubparRow>(&mut self) -> Result<()> {
+    self.base = Some(Row::get_template());
+    Ok(())
+  }
+
+  /// Sets up the format of the sheet using a row template.
+  ///
+  /// This validates that the sheets are compatible if the base is populated, based on the modes
+  pub fn add_template<Row: SubparRow>(&self, modes: Vec<Mode>) -> Result<()> {
     let template_id = Row::get_id();
-    unimplemented!("'apply_sheet' is not implemented yet")
+    log::debug!(
+      "Applying template '{}' to sheet '{}'",
+      template_id,
+      self.name
+    );
+
+    // must have at least one mode allowed
+    if modes.len() == 0 {
+      err_ctx!(
+        SubparError::BadValue,
+        "Sheet templates ({}) must be registered with at least one mode",
+        template_id
+      )?;
+    }
+
+    // Is the template already registered
+
+    Ok(())
   }
 }
 
 impl SubparSheet for Sheet {}
 
-#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct Reader {}
+/// A wrapper for the reader implementations
+#[derive(Debug)]
+pub enum ReaderWrapper {
+  Csv(CsvReader),
+  // Sheets(SheetsReader),
+}
+
+impl Default for ReaderWrapper {
+  fn default() -> ReaderWrapper {
+    unimplemented!("Default is not implemented for ")
+  }
+}
+
+#[derive(Debug)]
+pub struct Reader {
+  sheet_name: String,
+  state: Rc<RefCell<State>>,
+  internal: ReaderWrapper,
+}
 
 impl std::fmt::Display for Reader {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -156,3 +213,30 @@ impl Reader {
     unimplemented!("'Reader::new' is not implemented yet")
   }
 }
+
+/// Wrap up the internal reader (CSV)
+impl Iterator for Reader {
+  type Item = Row;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    unimplemented!("'Reader Iterator.next' still needs to be implemented")
+  }
+}
+
+/// Tag the readers/writers so they know to close the sheet at the end of life
+pub trait SheetModifier {}
+
+/// Add the generics needed to make
+macro_rules! is_sheet_modifier {
+  ($ty:ty) => {
+    impl SheetModifier for $ty {}
+
+    impl Drop for $ty {
+      fn drop(&mut self) {
+        let _ = (*self.state).borrow_mut().close();
+      }
+    }
+  };
+}
+
+is_sheet_modifier! {Reader}

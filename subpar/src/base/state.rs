@@ -41,7 +41,7 @@ impl Default for ConnectionState {
 /// This is where we keep the generic information about sheets, columns, and options for use with
 /// all workbook components.
 #[derive(Debug, Default)]
-pub struct State {
+pub(crate) struct State {
   /// A workbook name for debugging/logging
   name: String,
 
@@ -75,6 +75,31 @@ impl State {
     }
   }
 
+  //--- Actions
+  /// Get a sheet modifier for the sheet with the given mode
+  pub fn open_read(&mut self, _sheet_name: &String) -> Result<CsvReader> {
+    // ok_or!(
+    //   self.active_sheet,
+    //   SubparError::Busy,
+    //   "Sheet {} cannot be opened because sheet {} is already active",
+    //   sheet_name,
+    //   self.active_sheet.unwrap()
+    // )?;
+
+    unimplemented!("'State::open' still needs to be implemented")
+  }
+
+  pub fn close(&mut self) -> Result<()> {
+    match self.active_sheet {
+      Some(_) => self.active_sheet = None,
+      None => err_ctx!(
+        SubparError::Impossible,
+        "State tried to close the active sheet, but none were open"
+      )?,
+    }
+    Ok(())
+  }
+
   //--- Sheet management
   pub fn list_sheets(&self) -> Vec<String> {
     self.sheets.keys().map(|key| key.clone()).collect()
@@ -90,7 +115,7 @@ impl State {
       Some(_) => Err(SubparError::DuplicateKey).context(format!(
         "A sheet with the name {} already exists in the workbook {}",
         name, self.name,
-      )),
+      ))?,
     }
   }
 
@@ -107,11 +132,13 @@ impl State {
   }
 
   /// Apply a template to a sheet
-  pub fn apply_template<Row: SubparRow>(&mut self, sheet_name: &String) -> Result<()> {
+  pub fn add_template<Row: SubparRow>(
+    &mut self,
+    sheet_name: &String,
+    modes: Vec<Mode>,
+  ) -> Result<()> {
     let sheet = self.get_sheet(sheet_name)?;
 
-    sheet.apply_template::<Row>();
-
-    Ok(())
+    sheet.add_template::<Row>(modes)
   }
 }

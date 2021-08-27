@@ -7,7 +7,7 @@
 //! process or even as a stand-alone micro-service
 
 use crate::prelude::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use std::collections::HashMap;
 
@@ -35,8 +35,11 @@ impl SubparServer {
     }
   }
 
-  pub fn run(&self, _act: Action) -> Result<(), SubparError> {
-    Ok(())
+  pub fn run(&self, _act: Action) -> Result<()> {
+    err_ctx!(
+      SubparError::NotImplemented,
+      "SubparServer::run is not implemented"
+    )
   }
 }
 

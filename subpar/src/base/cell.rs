@@ -17,7 +17,7 @@ impl Cell {
     Cell { value }
   }
 
-  pub fn to_value<T: DeserializeOwned>(self) -> Result<T, SubparError> {
+  pub fn to_value<T: DeserializeOwned>(self) -> Result<T> {
     match serde_json::from_value(self.value) {
       Ok(val) => Ok(val),
       Err(err) => Err(From::from(err)),
@@ -40,7 +40,7 @@ impl Cell {
 // impl<'de, T: Deserialize<'de>> TryFrom<Box<Cell>> for Wrapper<T> {
 //   type Error = SubparError;
 
-//   fn try_from(cell: Box<Cell>) -> Result<Wrapper<T>, SubparError> {
+//   fn try_from(cell: Box<Cell>) -> Result<Wrapper<T>> {
 //     Ok(Wrapper(T::deserialize(*cell)?))
 //   }
 // }
@@ -51,7 +51,7 @@ impl Cell {
 //     impl std::convert::TryFrom<Cell> for $to {
 //       type Error = SubparError;
 
-//       fn try_from(cell: Cell) -> Result<$to, SubparError> {
+//       fn try_from(cell: Cell) -> Result<$to> {
 //         let Cell(value) = cell;
 //         Ok(value.try_from()?)
 //       }

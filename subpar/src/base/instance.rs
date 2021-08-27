@@ -5,17 +5,39 @@
 use crate::prelude::*;
 use anyhow::Result;
 
-/// Define the basic file access mode - read or write
+/// Define the basic file access modes - read or write
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 pub enum Mode {
+  /// Allowed to read from the given source
   Read,
+  /// Write - add new rows to the end
   Append,
+  /// Add new rows in a specified position
+  Insert,
+  /// Update values within an existing file
+  Update,
+  ///
   Overwrite,
 }
 
 impl Default for Mode {
   fn default() -> Mode {
     Mode::Read
+  }
+}
+
+impl Mode {
+  pub fn read_only() -> Vec<Mode> {
+    vec![Mode::Read]
+  }
+
+  /// Read and append writes only
+  pub fn basic() -> Vec<Mode> {
+    vec![Mode::Read, Mode::Append]
+  }
+
+  pub fn all() -> Vec<Mode> {
+    vec![Mode::Read, Mode::Append, Mode::Insert, Mode::Overwrite]
   }
 }
 
@@ -34,19 +56,19 @@ pub trait SubparWorkbook: std::fmt::Debug {
 
   // /// This is a validation that the current config can be opened in the given mode
   // /// Lock the workbook for use in the given mode
-  // fn open(&self, mode: Mode) -> Result<(), SubparError>;
+  // fn open(&self, mode: Mode) -> Result<()>;
 
   // /// Release the lock on the workbook
-  // fn close(&self) -> Result<(), SubparError>
+  // fn close(&self) -> Result<()>
 
   // /// Do an initial scan based on the given configuration
-  // fn init(&self) -> Result<State, SubparError>;
+  // fn init(&self) -> Result<State>;
 
   // Compare the internal state with the reality
-  // fn scan(&mut self) -> Result<(), SubparError>;
+  // fn scan(&mut self) -> Result<()>;
 
   // /// Add a new sheet
-  // fn add_sheet(&self, sheet_name: &str) -> Result<(), SubparError>
+  // fn add_sheet(&self, sheet_name: &str) -> Result<()>
 
   /// Get the current list of known sheets
   fn list_sheets(&self) -> Result<Vec<String>>;

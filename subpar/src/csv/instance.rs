@@ -1,4 +1,4 @@
-//! Definition and options for CSV files
+//! Implementation of a CSV backed workbook
 
 use crate::prelude::*;
 use anyhow::{Context, Result};
@@ -118,7 +118,7 @@ pub mod helpers {
   }
 
   /// Use a path to create a unique id
-  pub fn path_to_id(path: &PathBuf) -> Result<Uuid, SubparError> {
+  pub fn path_to_id(path: &PathBuf) -> Result<Uuid> {
     Ok(Uuid::new_v5(
       &Uuid::NAMESPACE_OID,
       ["csv", "|", path_to_str(path)?]

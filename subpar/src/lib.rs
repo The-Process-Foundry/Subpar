@@ -31,11 +31,13 @@ pub mod cartograph;
 pub mod macros;
 
 pub mod prelude {
-  pub use anyhow::Context;
-
   // Make all the types safe to use
   pub use std::borrow::{Borrow, BorrowMut};
+  pub use std::cell::RefCell;
   pub use std::rc::Rc;
+
+  // Used by SubparRow trait
+  pub use std::convert::TryFrom;
 
   // Everything should be identified uniquely
   pub use uuid::Uuid;
@@ -44,7 +46,7 @@ pub mod prelude {
   pub use serde::{Deserialize, Serialize};
 
   // Simple alias so we don't have to use crate::
-  pub use crate::{base, csv, errors, server};
+  pub use crate::{base, errors, server};
 
   pub use crate::macros::use_all_macros::*;
 
@@ -57,10 +59,17 @@ pub mod prelude {
     messages::{Action, Event},
     row::{Row, SubparRow},
     sheet::{Sheet, SheetTemplate, SubparSheet},
-    state::State,
     workbook::Workbook,
   };
 
+  pub(crate) use base::state::State;
+
   #[cfg(feature = "cartography")]
   pub use {crate::cartograph, cartograph::ServerPoI};
+
+  // CSV Feature
+  pub use crate::csv;
+  pub use crate::csv::{instance::CsvWorkbook, io::reader::Reader};
+
+  pub use crate::csv::*;
 }

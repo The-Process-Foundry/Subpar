@@ -4,14 +4,15 @@
 //! we place the top level serialization
 
 use crate::prelude::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 
 /// A tag that allows us to link a struct with a row
-pub trait SubparRow: Any + std::fmt::Debug + Sized {
+pub trait SubparRow: TryFrom<Row, Error = SubparError> + Any + std::fmt::Debug + Sized {
   /// Get a unique id for the template type
   ///
   /// This defaults to automatically create a Uuid by hashing the any::TypeId
@@ -30,12 +31,12 @@ pub trait SubparRow: Any + std::fmt::Debug + Sized {
   }
 
   /// to_cells
-  fn to_cells(&self) -> Result<Row, SubparError> {
+  fn to_cells(&self) -> Result<Row> {
     unimplemented!("'to_cells' is not implemented yet<")
   }
 
-  /// from_cells
-  fn from_row(row: Row) -> Result<Self, SubparError>;
+  // from_cells
+  // fn from_row(row: Row) -> Result<Self>;
 }
 
 #[derive(Debug)]
@@ -63,7 +64,7 @@ impl Row {
   }
 
   /// Append a cell to the end of the row
-  pub fn add_cell(&mut self, value: Cell, name: Option<&str>) -> Result<()> {
+  pub fn add_cell(mut self, value: Cell, name: &Option<&String>) -> Result<Self, SubparError> {
     let cell = Rc::new(value);
     if let Some(name) = name {
       if let Some(_) = self.by_name.insert(name.to_string(), cell.clone()) {
@@ -72,9 +73,8 @@ impl Row {
       }
     }
     self.cells.push(cell);
-    Ok(())
+    Ok(self)
   }
-
   /// Retrieve a cell from the row
   pub fn get_cell(&self, cell_name: &str) -> Result<Cell> {
     let cell = ok_or!(
