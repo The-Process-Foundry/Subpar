@@ -2,7 +2,7 @@
 //!
 //! Commonize the interface for manipulating an instance of a tabular.
 
-use crate::prelude::*;
+use crate::local::*;
 use anyhow::Result;
 
 /// Define the basic file access modes - read or write
@@ -51,6 +51,9 @@ pub trait SubparWorkbook: std::fmt::Debug {
 
   /// A name that can be used for debugging/logging
   fn get_name(&self) -> Result<String>;
+
+  /// Get an accessor for the requested sheet
+  fn get_sheet_accessor(&self, sheet_name: &String) -> Result<SheetAccessor>;
 
   //-- Actions
 

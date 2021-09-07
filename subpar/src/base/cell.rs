@@ -2,27 +2,77 @@
 //!
 //! This is a wrapped value, designed to hold the data in intermediate form
 
-use crate::prelude::*;
+use crate::local::*;
 use anyhow::Result;
-use serde::{de::DeserializeOwned, Deserialize};
 
-// By directly using serde, we can send reads across the wire to remote requestors
-#[derive(Clone, Debug, Serialize, Deserialize)]
+use std::convert::TryFrom;
+
+use schemars::schema::SchemaObject;
+use serde_json::Number;
+use serde_json::Value as JsonValue;
+
+/// A wrapper to enclose the raw data received from a reader
+///
+/// Some forms of reader are given metadata to differentiate between types, so we want to use those
+/// as hints. Writers use this for encoding purposes.
+#[derive(Debug)]
+pub enum CellValue {
+  /// Column doesn't exist, though the cell is expected
+  Null,
+  /// The reader explicitly detected the field as having no value
+  Empty,
+  /// Completely unprocessed string (such as from a CSV)
+  Raw(String),
+  /// Any of the numeric subtypes (float, )
+  Number(Number),
+  /// The default string type
+  String(String),
+}
+
+#[derive(Debug)]
 pub struct Cell {
-  value: serde_json::Value,
+  name: String,
+  value: CellValue,
 }
 
 impl Cell {
-  pub fn new(value: serde_json::Value) -> Cell {
-    Cell { value }
+  pub fn new(name: String, value: CellValue) -> Cell {
+    Cell { name, value }
   }
 
-  pub fn to_value<T: DeserializeOwned>(self) -> Result<T> {
-    match serde_json::from_value(self.value) {
-      Ok(val) => Ok(val),
-      Err(err) => Err(From::from(err)),
-    }
+  // Parse the cell into serde_json value using the schema
+  pub fn to_value(self) -> Result<JsonValue> {
+    unimplemented!("'to_value' still needs to be implemented")
   }
+
+  // /// Parse from an unknown string into an intermediate form.
+  // ///
+  // /// This is primarily for the CSV reader. If we don't know the type it's eventually going to
+  // /// deserialize into, we have to make an educated guess.
+  // pub fn from_str(value: &str) -> Result<Cell> {
+  //   match value.len() {
+  //     0 => Ok(Cell { value: Value::Null }),
+  //     _ => {
+  //       let x: Result<Value, serde_json::Error> = serde_json::from_str(value);
+  //       let y: Result<Value> = Ok(Value::String(value.to_string()));
+  //       Ok(Cell { value: x.or(y)? })
+  //     }
+  //   }
+  // }
+}
+
+// Begin the deserializer for the schema
+use serde::{de::DeserializeOwned, Deserialize};
+
+impl TryFrom<Cell> for JsonValue {
+  type Error = AnyhowError;
+
+  fn try_from(cell: Cell) -> Result<JsonValue> {
+    unimplemented!("'Cell.try_from' still needs to be implemented")
+  }
+}
+struct ToValue<'de> {
+  input: &'de Cell,
 }
 
 // Bug with generics and TryFrom: https://github.com/rust-lang/rust/issues/50133
@@ -61,7 +111,7 @@ impl Cell {
 //     impl<$($generic), +> std::convert::TryFrom<Cell> for $full<$($generic), +>  {
 //       type Error = SubparError;
 
-//       fn try_from(cell: Cell) -> Result<$full<$($generic), +>, SubparError> {
+//       fn try_from(cell: Cell) -> Result<$full<$($generic), +>> {
 //         let Cell(value) = cell;
 //         Ok(value.try_from()?)
 //       }

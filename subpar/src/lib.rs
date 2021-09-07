@@ -11,33 +11,37 @@
 #[doc(hidden)]
 pub use subpar_derive::SubparTable;
 
-// The Subpar wrapped errors
+// The Subpar implementation of allwhat
 pub mod errors;
 
 // Items common to all Table Types
 pub mod base;
 
+// (De)serialization row
+pub mod json;
+
 // CSV table parsers
+#[cfg(feature = "csv_tables")]
 pub mod csv;
 
+// Some generic code I use throughout
+// pub(crate) mod helpers;
+
 // Handle multiple csv files simultaneously
-pub mod server;
+// pub mod server;
 
 // Cartographic wrapper
-#[cfg(feature = "cartography")]
-pub mod cartograph;
+// #[cfg(feature = "cartography")]
+// pub mod cartograph;
 
 // Some macros I use everywhere. To be moved to other projects
 pub mod macros;
 
-pub mod prelude {
+mod local {
   // Make all the types safe to use
   pub use std::borrow::{Borrow, BorrowMut};
   pub use std::cell::RefCell;
   pub use std::rc::Rc;
-
-  // Used by SubparRow trait
-  pub use std::convert::TryFrom;
 
   // Everything should be identified uniquely
   pub use uuid::Uuid;
@@ -45,31 +49,36 @@ pub mod prelude {
   // The standard serializer derive macros
   pub use serde::{Deserialize, Serialize};
 
-  // Simple alias so we don't have to use crate::
-  pub use crate::{base, errors, server};
+  // Everything should be using a converting to a SubparError
+  pub use crate::prelude::*;
 
-  pub use crate::macros::use_all_macros::*;
+  pub use allwhat::exports::{AnnotatedResult, ErrorGroup, SplitResult};
+}
 
-  // Everything should be converting to a SubparError
-  pub use errors::{ErrorGroup, SplitResult, SubparError};
+/// All the basic items needed to use subpar derive
+pub mod prelude {
+  // Used by SubparRow trait, so it shows up everywhere
+  pub use std::convert::{TryFrom, TryInto};
 
-  pub use base::{
-    cell::Cell,
-    instance::{Mode, SubparWorkbook},
-    messages::{Action, Event},
-    row::{Row, SubparRow},
-    sheet::{Sheet, SheetTemplate, SubparSheet},
-    workbook::Workbook,
+  pub use crate::{
+    base::{
+      self,
+      accessor::Accessor,
+      cell::{Cell, CellValue},
+      //   instance::{Mode, SubparWorkbook},
+      //   messages::{Action, Event},
+      //   sheet::{Sheet, SheetAccessor, SheetTemplate, SubparSheet},
+      //   workbook::Workbook,
+      row::{Row, RowTemplate, SubparRow},
+    },
+    errors::{self, prelude::*},
   };
 
-  pub(crate) use base::state::State;
+  #[cfg(feature = "csv_tables")]
+  pub use crate::csv::{self, io::CsvReader};
 
-  #[cfg(feature = "cartography")]
-  pub use {crate::cartograph, cartograph::ServerPoI};
+  // pub(crate) use base::state::State;
 
-  // CSV Feature
-  pub use crate::csv;
-  pub use crate::csv::{instance::CsvWorkbook, io::reader::Reader};
-
-  pub use crate::csv::*;
+  // #[cfg(feature = "cartography")]
+  // pub use {crate::cartograph, cartograph::ServerPoI};
 }

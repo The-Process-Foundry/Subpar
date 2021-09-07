@@ -3,7 +3,7 @@
 //! This is both configuration and state information about a workbook. It is used for validation
 //! and transformations between row and struct
 
-use crate::prelude::*;
+use crate::local::*;
 use anyhow::{Context, Result};
 
 use std::collections::HashMap;
@@ -21,13 +21,15 @@ pub enum ConnectionState {
   /// The instance was created but has not been initialized. Implies Closed
   New,
   /// The current instance has "locked" the workbook for its own use
-  Open,
+  Open(String, Mode),
   /// The pipeline to the instance is not active and anybody may grab it
   Closed,
   /// There is somebody else using this workbook instance
   Blocked,
   /// Waiting for the workbook to become available
   Pending,
+  /// This workbook cannot be used due to an error
+  Error(String),
 }
 
 impl Default for ConnectionState {
@@ -52,7 +54,7 @@ pub(crate) struct State {
   active_sheet: Option<String>,
 
   /// All the known sheets in the workbook, and their underlying metadata (if available)
-  sheets: HashMap<String, Sheet>,
+  sheets: HashMap<String, Box<Sheet>>,
 
   /// Alternate names a sheet can be known by
   aliases: HashMap<String, String>,
@@ -70,29 +72,49 @@ impl State {
       name,
       connection: ConnectionState::New,
       active_sheet: None,
-      sheets: HashMap::<String, Sheet>::new(),
+      sheets: HashMap::<String, Box<Sheet>>::new(),
       aliases: HashMap::<String, String>::new(),
     }
   }
 
   //--- Actions
-  /// Get a sheet modifier for the sheet with the given mode
-  pub fn open_read(&mut self, _sheet_name: &String) -> Result<CsvReader> {
-    // ok_or!(
-    //   self.active_sheet,
-    //   SubparError::Busy,
-    //   "Sheet {} cannot be opened because sheet {} is already active",
-    //   sheet_name,
-    //   self.active_sheet.unwrap()
-    // )?;
+  /// Get a SheetProcessor for the given sheet
+  ///
+  /// TODO: This should be a SheetProcessor, but for the moment just trying to get CSV to work
+  pub fn open(&mut self, sheet_name: &String, mode: Mode) -> Result<()> {
+    // Check the connection is available
+    match &self.connection {
+      ConnectionState::New | ConnectionState::Closed => (),
+      ConnectionState::Open(active, _) => err_ctx!(
+        SubparError::Busy,
+        "Sheet {} cannot be opened because sheet {} is already active",
+        sheet_name,
+        active
+      )?,
+      _ => unimplemented!("'State::open' still have not implemented all states"),
+    }
 
-    unimplemented!("'State::open' still needs to be implemented")
+    let _sheet = self.get_sheet(sheet_name)?;
+    self.connection = ConnectionState::Open(sheet_name.clone(), mode);
+    // sheet.get_processor().map_err(|err| {
+    //   self.connection = ConnectionState::Error(format!(
+    //     "Getting processor for sheet {} failed:\n{:#?}",
+    //     sheet_name, err
+    //   ));
+    //   err_ctx!(
+    //     err,
+    //     "Could not open sheet {} in {:?} mode",
+    //     sheet_name,
+    //     mode
+    //   )
+    // })
+    Ok(())
   }
 
   pub fn close(&mut self) -> Result<()> {
-    match self.active_sheet {
-      Some(_) => self.active_sheet = None,
-      None => err_ctx!(
+    match self.connection {
+      ConnectionState::Open(_, _) => self.connection = ConnectionState::Closed,
+      _ => err_ctx!(
         SubparError::Impossible,
         "State tried to close the active sheet, but none were open"
       )?,
@@ -107,12 +129,12 @@ impl State {
 
   /// Let the workbook know about a new sheet
   pub fn add_sheet(&mut self, name: String, sheet: Option<Sheet>) -> Result<()> {
-    match self
-      .sheets
-      .insert(name.clone(), sheet.unwrap_or(Sheet::new(&name)))
-    {
+    match self.sheets.insert(
+      name.clone(),
+      Box::new(sheet.unwrap_or(Sheet::new(&name, None))),
+    ) {
       None => Ok(()),
-      Some(_) => Err(SubparError::DuplicateKey).context(format!(
+      Some(_) => Err(SubparError::DuplicateKey).ctx(format!(
         "A sheet with the name {} already exists in the workbook {}",
         name, self.name,
       ))?,
@@ -122,17 +144,17 @@ impl State {
   /// Get or create a mutable blank sheet
   ///
   /// This gets a reference to the contents of the RC. If not found
-  fn get_sheet(&mut self, sheet_name: &String) -> Result<&Sheet> {
+  fn get_sheet(&mut self, sheet_name: &String) -> Result<&Box<Sheet>> {
     let sheet = self
       .sheets
       .get(sheet_name)
       .ok_or(SubparError::NotFound)
-      .context(format!("Could not find sheet '{}'", sheet_name))?;
+      .ctx(format!("Could not find sheet '{}'", sheet_name))?;
     Ok(sheet)
   }
 
   /// Apply a template to a sheet
-  pub fn add_template<Row: SubparRow>(
+  pub fn _add_template<Row: SubparRow>(
     &mut self,
     sheet_name: &String,
     modes: Vec<Mode>,

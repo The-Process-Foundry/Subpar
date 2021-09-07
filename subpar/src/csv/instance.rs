@@ -1,6 +1,6 @@
 //! Implementation of a CSV backed workbook
 
-use crate::prelude::*;
+use crate::local::*;
 use anyhow::{Context, Result};
 
 use std::collections::HashMap;
@@ -34,101 +34,6 @@ impl Default for Options {
 impl Options {
   pub fn new() -> Options {
     Default::default()
-  }
-}
-
-/// Some data management tools for cleaning up the data
-///
-/// These are mostly wrappers to existing methods add on better validation errors without cluttering
-/// up the business code.
-pub mod helpers {
-  use crate::prelude::*;
-  use anyhow::{Context, Result};
-
-  use std::path::{Path, PathBuf};
-
-  /// Create a canonical path buffer from a string
-  pub fn canonicalize(path: &str) -> Result<PathBuf> {
-    Path::new(&path).canonicalize().context(format!(
-      "Could not canonicalize path '{}'. Current directory is: {:?}",
-      path,
-      std::env::current_dir()?
-    ))
-  }
-
-  /// Check a file extension matches in a case insensitive fashion
-  ///
-  /// This can potentially fail if the extension cannot be converted to ascii. Erroring is more
-  /// useful than calling it "false"
-  pub fn cmp_extension(path: &PathBuf, extension: &str) -> Result<bool> {
-    path.extension().map_or(Ok(false), |x| {
-      x.to_ascii_lowercase()
-        .to_str()
-        .map(|ext| ext == extension)
-        .ok_or(SubparError::ConversionError)
-        .context("'csv::Location::new' could not convert extension to ascii")
-    })
-  }
-
-  /// Takes a path and returns the file stem to be used as a name
-  pub fn to_sheet_name(path: &PathBuf) -> Result<&str> {
-    log::debug!("File Stem: {:?}", path.file_stem());
-    path
-      .file_stem()
-      .ok_or_else(|| SubparError::InvalidLocation)
-      .context(format!(
-        "csv::to_sheet_name file {:?} did not have a file stem",
-        path
-      ))?
-      .to_str()
-      .clone()
-      .ok_or(SubparError::ConversionError)
-      .context("'csv::Location::to_sheet_name' could not convert file name to ascii")
-  }
-
-  /// Find all the files in a directory with a CSV extension
-  pub fn list_csv_files(path: &PathBuf) -> Result<Vec<PathBuf>> {
-    if !path.is_dir() {
-      Err(SubparError::InvalidPath).context("The path {:?} is not a directory")?
-    };
-
-    let mut result = vec![];
-    for entry in path.read_dir()? {
-      match entry {
-        Ok(e) => match cmp_extension(&e.path(), "csv")? {
-          true => result.push(e.path().clone()),
-          false => (),
-        },
-        Err(_) => {
-          entry.context("error in list_csv_files")?;
-          ()
-        }
-      }
-    }
-    Ok(result)
-  }
-
-  /// Convert a Path/PathBuf to a string, failing if it can't
-  pub fn path_to_str(path: &PathBuf) -> Result<&str> {
-    path
-      .to_str()
-      .clone()
-      .ok_or(SubparError::ConversionError)
-      .context("csv::helpers::path_to_str could not convert file name to ascii")
-  }
-
-  /// Use a path to create a unique id
-  pub fn path_to_id(path: &PathBuf) -> Result<Uuid> {
-    Ok(Uuid::new_v5(
-      &Uuid::NAMESPACE_OID,
-      ["csv", "|", path_to_str(path)?]
-        .iter()
-        .fold("".to_string(), |mut acc, item| {
-          acc.push_str(item);
-          acc
-        })
-        .as_bytes(),
-    ))
   }
 }
 
@@ -193,7 +98,7 @@ impl CsvWorkbook {
       let key = to_sheet_name(&file)?;
       match sheets.insert(key.clone().to_string(), file.to_owned()) {
         None => (),
-        Some(_) => Err(SubparError::DuplicateKey).context(format!(
+        Some(_) => Err(SubparError::DuplicateKey).ctx(format!(
           "There were two CSV files with the same name '{}' in directory '{}'",
           key,
           path_to_str(&directory)?
@@ -238,5 +143,15 @@ impl SubparWorkbook for CsvWorkbook {
   /// Return a list of registered sheet names
   fn list_sheets(&self) -> Result<Vec<String>> {
     Ok(self.sheets.keys().map(|key| key.clone()).collect())
+  }
+
+  fn get_sheet_accessor(&self, sheet_name: &String) -> Result<SheetAccessor> {
+    let path = ok_or!(
+      self.sheets.get(sheet_name),
+      SubparError::NotFound,
+      "Could not get a sheet path for {}",
+      sheet_name
+    )?;
+    Ok(SheetAccessor::Csv(path.clone()))
   }
 }

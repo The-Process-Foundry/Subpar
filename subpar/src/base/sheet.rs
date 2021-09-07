@@ -2,10 +2,11 @@
 //!
 //!
 
-use crate::prelude::*;
+use crate::local::*;
 use anyhow::{Context, Result};
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 /// Annotating an object as a Sheet
 ///
@@ -97,17 +98,28 @@ impl std::fmt::Display for SheetTemplate {
 
 impl SheetTemplate {}
 
+/// How the sheet is accessed.
+pub enum SheetAccessor {
+  /// CSV requires the exact location of the file
+  Csv(PathBuf),
+  // /// Google sheets requires local creds and a url to connect to
+  // Sheets(PathBuf, Url),
+}
+
 /// Abstract data about a sheet
 ///
 /// This tells a reader/writer how the table should look
 // THINK: Is cached data useful?
-#[derive(Default)]
 pub struct Sheet {
   /// The name the workbook knows the sheet by
   ///
   /// In GUI based workbooks such as Excel and Sheets this is the name on the tab. For CSV, it is
   /// the file stem (the piece before .csv)
   name: String,
+
+  /// The IO pipeline
+  /// FIXME: This is not optional
+  _accessor: Option<SheetAccessor>,
 
   /// This is the expectations for the given sheet
   ///
@@ -138,9 +150,10 @@ impl std::fmt::Display for Sheet {
 
 impl Sheet {
   // Map a template
-  pub fn new(name: &String) -> Sheet {
+  pub fn new(name: &String, _accessor: Option<SheetAccessor>) -> Sheet {
     Sheet {
       name: name.clone(),
+      _accessor,
       base: None,
       _templates: HashMap::new(),
       _metadata: None,
@@ -197,7 +210,7 @@ impl Default for ReaderWrapper {
 #[derive(Debug)]
 pub struct Reader {
   sheet_name: String,
-  state: Rc<RefCell<State>>,
+  state: Rc<std::cell::RefCell<State>>,
   internal: ReaderWrapper,
 }
 

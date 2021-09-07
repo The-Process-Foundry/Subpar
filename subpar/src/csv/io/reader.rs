@@ -3,22 +3,18 @@
 //! This wraps the csv::Reader into the common subpar model
 //! TODO: Convert this to use Reader::from_reader and create a std::io::Read value
 
-pub use crate::prelude::*;
+pub use crate::local::*;
 pub use anyhow::{Context, Result};
 
 pub use ::csv::{Error as CsvError, Reader, ReaderBuilder, StringRecord};
+pub use std::collections::HashMap;
 pub use std::path::PathBuf;
-
-// enum Sources {
-//   File(Reader<std::fs::File>),
-//   Stream(Reader<>)
-// }
 
 /// Specific options used for creating the reader/writer
 ///
-/// These are mapped directly from https://docs.rs/csv/1.1.6/csv/struct.ReaderBuilder.html
+/// The are mapped directly from https://docs.rs/csv/1.1.6/csv/struct.ReaderBuilder.html
 #[derive(Debug)]
-pub struct Options {
+pub struct FileOptions {
   /// Use Ascii delimited text
   pub is_ascii: bool,
   /// Set the reader's buffer capacity. Rust decides by default.
@@ -46,9 +42,9 @@ pub struct Options {
   pub trim: bool,
 }
 
-impl Default for Options {
-  fn default() -> Options {
-    Options {
+impl Default for FileOptions {
+  fn default() -> FileOptions {
+    FileOptions {
       is_ascii: false,
       buffer_size: None,
       comment: None,
@@ -65,18 +61,38 @@ impl Default for Options {
   }
 }
 
-/// An open iterator pointing to the CSV file
+#[derive(Debug, Default)]
+pub struct Options {
+  /// reader specific options
+  pub file_options: FileOptions,
+
+  // Validation options
+  /// Add unknown columns to the row without validation. If false, they are just ignored.
+  pub keep_unknown: bool,
+}
+
+/// An open iterator pointing a data stream which returns rows of data
+///
+/// This can use a json schema as a template to validate items as they go along, as well as coerce
+/// ambiguous items into their
 pub struct CsvReader {
   /// The location of the file on the filesystem
   path: PathBuf,
+
   /// Configuration settings for the reader
   options: Options,
-  /// The first line of the file, if the "has_headers" option is true. Blank if false.
+
+  /// The first line of the file if it has a header row, otherwise a stringified list of column numbers.
   headers: Vec<String>,
+
   /// An iterator that will loop over the contents of CSV file, emitting Row objects
   reader: Box<dyn Iterator<Item = Result<StringRecord, CsvError>>>,
+
   /// A counter pointing to the last line red
   current_line: i64,
+
+  /// Define the expected fields
+  template: Rc<RowTemplate>,
 }
 
 impl std::fmt::Debug for CsvReader {
@@ -98,12 +114,17 @@ impl std::fmt::Display for CsvReader {
 
 impl CsvReader {
   /// Create a new reader
-  pub fn new(path: &PathBuf, opts: Option<Options>) -> Result<CsvReader> {
+  pub fn new(
+    accessor: Accessor,
+    template: Option<Rc<RowTemplate>>,
+    opts: Option<Options>,
+  ) -> Result<CsvReader> {
+    // Set up the base reader
     let (options, builder) = match opts {
       None => (Options::default(), ReaderBuilder::new()),
       Some(options) => {
         let mut builder = ReaderBuilder::new();
-        if options.is_ascii {
+        if options.file_options.is_ascii {
           builder.ascii();
         };
 
@@ -111,11 +132,42 @@ impl CsvReader {
       }
     };
 
+    // Get the canonicalized path of the location
+    let canon = &accessor.canonicalize(false)?;
+    let path = match canon {
+      Accessor::Csv(path) => Ok(path),
+      _ => Err(Kind::Impossible).context("Tried to build a CSV Reader with an invalid accessor"),
+    }?;
+
     let mut reader = builder.from_path(path.as_path())?;
 
-    let headers = match options.has_headers {
-      true => reader.headers()?.iter().map(|x| x.to_owned()).collect(),
-      false => vec![],
+    // Get or create a schema for the file
+    let (template, headers) = match options.file_options.has_headers {
+      true => {
+        let headers = reader.headers()?.iter().map(|x| x.to_owned()).collect();
+        match template {
+          Some(schema) => {
+            schema.validate_headers(&headers)?;
+            (schema, headers)
+          }
+          None => {
+            // AnnotatedResult::fold(RowTemplate::new(None), headers.iter(), |row, column| {
+            //   row.add_column(column.clone(), None)
+            // })
+            // .as_result::<Kind>()?,
+            unimplemented!("'Create Template' still needs to be implemented")
+          }
+        }
+      }
+      false => match template {
+        Some(schema) => {
+          let headers = schema.get_headers()?;
+          (schema, headers)
+        }
+        None => Err(Kind::NotImplemented).context(
+          "Cannot read CSV file '{}' because it doesn't have either headers or a template",
+        )?,
+      },
     };
 
     Ok(CsvReader {
@@ -124,34 +176,69 @@ impl CsvReader {
       options,
       reader: Box::new(reader.into_records()),
       current_line: 0,
+      template,
     })
+  }
+
+  pub fn slurp<T: SubparRow>(path: &str, _opts: Option<Options>) -> Result<Vec<T>> {
+    let accessor = Accessor::new_csv(path);
+    let reader = CsvReader::new(accessor, Some(Rc::new(T::get_template())), None)?;
+
+    SplitResult::map(reader, |line| {
+      // log::debug!("Processing Row: {:#?}", line);
+      match line {
+        Ok(row) => {
+          let row: Result<T> = TryFrom::try_from(row);
+          // log::debug!("Converted to: {:#?}", row);
+          row
+        }
+        Err(err) => Err(err),
+      }
+    })
+    .as_result()
   }
 }
 
 /// Loop through the reader, returning generic rows that can be converted into specific structs
 impl Iterator for CsvReader {
-  type Item = Result<Row, SubparError>;
+  type Item = Result<Row>;
 
   fn next(&mut self) -> Option<Self::Item> {
     self.current_line += 1;
-    self.reader.next().map(|record| match record {
-      Ok(record) => record
+    // log::debug!("Trying to read data line {}", self.current_line);
+    let record = match self.reader.next() {
+      None => return None,
+      Some(Err(err)) => {
+        return Some(Err(err).context(format!(
+          "Error reading record {} from file {}",
+          self.current_line,
+          self.path.to_string_lossy()
+        )))
+      }
+      Some(Ok(rec)) => rec,
+    };
+
+    // Create a hashmap of cells to be processed
+    let cells =
+      self
+        .headers
         .iter()
         .enumerate()
-        .fold(Ok(Row::new()), |acc, (i, val)| match acc {
-          Ok(row) => {
-            let cell = Cell::new(serde_json::Value::String(val.to_string()));
-            row.add_cell(cell, &self.headers.get(i))
-          }
-          err => err,
-        })
-        .context(format!(
-          "CsvReader had an error reading row {}",
-          self.current_line
-        ))
-        .map_err(|err| From::from(err)),
+        .fold(HashMap::<String, Cell>::new(), |mut acc, (i, name)| {
+          acc.insert(
+            name.clone(),
+            Cell::new(
+              name.clone(),
+              CellValue::Raw(record.get(i).unwrap().to_string()),
+            ),
+          );
+          acc
+        });
 
-      Err(err) => Err(From::from(err)),
-    })
+    Some(self.template.to_row(cells).context(format!(
+      "Could not convert record {} from file {} into a row",
+      self.current_line,
+      self.path.to_string_lossy(),
+    )))
   }
 }

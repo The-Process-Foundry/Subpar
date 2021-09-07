@@ -2,7 +2,7 @@
 //!
 //! A workbook contains one or more sheets.
 
-use crate::prelude::*;
+use crate::local::*;
 use anyhow::{Context, Result};
 
 use std::collections::HashMap;
@@ -44,7 +44,7 @@ pub struct Workbook {
   /// Sheet objects organized by a pretty name
   sheets: HashMap<String, Rc<Sheet>>,
 
-  /// A typed workbook
+  /// A typed workbook configuration
   instance: Rc<dyn SubparWorkbook>,
 
   /// Management info of the included sheets and facilitator of intra-workbook communication
@@ -94,7 +94,7 @@ impl Workbook {
         .map(|sheet| state.add_sheet(sheet.to_owned(), None)),
     );
     err
-      .map(|errors| Err(SubparError::to_group(errors)).context("Failed to add all the sheets"))
+      .map(|errors| Err(SubparError::to_group(errors)).ctx("Failed to add all the sheets"))
       .unwrap_or(Ok(()))?;
 
     Ok(())
@@ -115,23 +115,29 @@ impl Workbook {
   ///
   /// THINK: Should this return rows or the actual split result? I lean toward the latter as I
   /// usually want to do some post-processing after reading, even if some errors are acceptable
-  pub fn slurp<Row: SubparRow>(
-    &mut self,
-    sheet_name: &String,
-  ) -> Result<SplitResult<Row, SubparError>> {
+  pub fn slurp<Row: SubparRow>(&mut self, sheet_name: &String) -> Result<SplitResult<Row>> {
     log::debug!("Starting to slurp {}", sheet_name);
 
     borrow!("w", state, self.state);
+    state.open(sheet_name, Mode::Read)?;
 
     // Map the row type to the sheet name
-    state.add_template::<Row>(sheet_name, vec![Mode::Read])?;
+    // state.add_template::<Row>(sheet_name, vec![Mode::Read])?;
 
     // Open the sheet in read mode
-    let reader = state.open_read(sheet_name)?;
+    let accessor = self.instance.get_sheet_accessor(sheet_name)?;
+    let reader = CsvReader::slurp(accessor, None)?;
 
-    Ok(SplitResult::map(reader, |line| match line {
-      Ok(row) => TryFrom::try_from(row),
-      Err(err) => Err(err),
+    Ok(SplitResult::map(reader, |line| {
+      // log::debug!("Processing Row: {:#?}", line);
+      match line {
+        Ok(row) => {
+          let row: Result<Row> = TryFrom::try_from(row);
+          // log::debug!("Converted to: {:#?}", row);
+          row
+        }
+        Err(err) => Err(err),
+      }
     }))
   }
 
@@ -150,18 +156,20 @@ impl Workbook {
     // Check to make sure there is only one sheet
     let mut sheets = wb.list_sheets()?;
     let sheet_name = match sheets.len() {
-      0 => Err(SubparError::NotFound)
-        .context(format!("read_csv could not find any sheets at {}", path)),
+      0 => {
+        Err(SubparError::NotFound).ctx(format!("read_csv could not find any sheets at {}", path))
+      }
       1 => Ok(sheets.pop().unwrap()),
-      _ => Err(SubparError::AmbiguousResult).context(format!(
+      _ => Err(SubparError::AmbiguousResult).ctx(format!(
         "read_csv expects one sheet and received multiple for path {}",
         path,
       )),
     }?;
 
     log::debug!("Reading the CSV from sheet '{}'", sheet_name);
-    let rows: SplitResult<Row, SubparError> = wb.slurp::<Row>(&sheet_name)?;
-    let result: Result<Vec<Row>, SubparError> = rows.as_result();
+    let rows: SplitResult<Row> = wb.slurp::<Row>(&sheet_name)?;
+    // log::debug!("Finished reading the rows: {:#?}", rows);
+    let result: Result<Vec<Row>> = rows.as_result();
     Ok(result?)
   }
 }

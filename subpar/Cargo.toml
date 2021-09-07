@@ -9,15 +9,12 @@ description = "A set of traits and derives for working with tabular workbooks. I
 
 
 [features]
-default = ["derive"]
+default = ["derive", "csv_tables"]
 cartograph = []
 derive = []
+csv_tables = []
 
 [dependencies]
-# Error creation/handling
-anyhow = "1.0.43"
-thiserror = "1.0.26"
-
 # Basic Logging
 log = "0.4.14"
 env_logger = "0.9.0"
@@ -25,16 +22,22 @@ env_logger = "0.9.0"
 # DateTime
 chrono = { version = "0.4.19", features = ["serde"] }
 
+# Serialization Backend
+serde = { version = "1.0.130", features = ["derive"] }
 
-# Serialization
-serde = { version = "1.0.128", features = ["derive"] }
-serde_json = "1.0.66"
+# JSON encoding/decoding
+serde_json = "1.0.67"
+serde-transcode = "1.1.1"
+schemars = { version = "0.8.3", features = ["derive", "chrono", "uuid", "impl_json_schema"] }
 
 # Unique identifiers
 uuid =  { version = "0.8.2", features = ["serde", "v4", "v5"] }
 
 # Web locations
 url = "2.2.2"
+
+# Csv Module
+csv = "1.1.6"
 
 # Google sheets accessor
 sheets_db = {path = "../../Gappi/sheets_db"}
@@ -51,5 +54,10 @@ subpar_derive = { path = "../subpar_derive" }
 # Messaging platform
 cartographic = { path = "/home/dfogelson/Foundry/Cartographic"}
 
-# Csv Module
-csv = "1.1.6"
+# Error creation/handling
+thiserror = "1.0.29"
+anyhow = "1.0.43"
+allwhat = { path = "../../allwhat/" }
+
+# Validation
+filtrate = { path = "../../Filtrate" }

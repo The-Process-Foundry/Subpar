@@ -60,7 +60,7 @@ macro_rules! ok_or {
     $code.ok_or($err)
   };
   ($code:expr, $err:expr, $($ctx:expr),+) => {
-    $code.ok_or($err).context(format!($($ctx, )*))
+    $code.ok_or($err).context(format!($($ctx, )*)).map_err(|err| {log::error!("{}", err); err})
   };
 }
 

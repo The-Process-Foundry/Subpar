@@ -6,7 +6,7 @@
 //! This is used as a Point of Interest for Cartogenic, which allows the server to run in another
 //! process or even as a stand-alone micro-service
 
-use crate::prelude::*;
+use crate::local::*;
 use anyhow::{Context, Result};
 
 use std::collections::HashMap;
