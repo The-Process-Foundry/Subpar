@@ -4,11 +4,24 @@
 //! files while Google Sheets uses URL keys.
 
 use crate::local::*;
-use anyhow::Context;
+// use anyhow::Context;
 use std::path::PathBuf;
 
+#[derive(Debug)]
 pub enum Accessor {
   Csv(PathBuf),
+  // SheetsWorkbook
+  // SheetsSheet ?
+  // ExcelWorkbook
+  // ExcelSheet
+  // Excel360Workbook
+  // Excel360Sheet
+}
+
+impl std::fmt::Display for Accessor {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{:#?}", self)
+  }
 }
 
 impl Accessor {
@@ -23,27 +36,25 @@ impl Accessor {
   /// on the local file system but will not create the file itself.
   pub fn canonicalize(self, _create_missing: bool) -> Result<Accessor> {
     match self {
-      Accessor::Csv(path) => Ok(Accessor::Csv(canonicalize(path)?)),
+      Accessor::Csv(path) => Ok(Accessor::Csv(helpers::canonicalize(path)?)),
     }
   }
-}
 
-/// Create a canonical PathBuf
-pub fn canonicalize(buf: PathBuf) -> Result<PathBuf> {
-  let path = buf.as_path();
-
-  let exists =
-    path.is_file() || path.is_dir() || { path.parent().map(|x| x.is_dir()).unwrap_or(false) };
-  if !exists {
-    Err(Kind::InvalidPath).context(format!(
-      "path {} does not exist on the system and cannot be canonicalized",
-      path.to_str().unwrap()
-    ))?
-  } else {
-    Ok(path.canonicalize().context(format!(
-      "Could not canonicalize path '{}'. Current directory is: {:?}",
-      path.to_str().unwrap(),
-      std::env::current_dir()
-    ))?)
+  /// Get a pretty name as defined by the accessor to use as the default for a workbook
+  /// TODO: Move this to Workbook metadata, since the user may want to change it for logging purposes
+  pub fn name(&self) -> String {
+    match self {
+      Accessor::Csv(path) => match helpers::to_sheet_name(path) {
+        Ok(t) => t.to_string(),
+        Err(_) => {
+          let lossy = path.to_string_lossy().to_string();
+          log::warn!(
+            "Could not figure out a file name for path '{}', using lossy",
+            lossy
+          );
+          lossy
+        }
+      },
+    }
   }
 }

@@ -57,7 +57,7 @@ cartographic = { path = "/home/dfogelson/Foundry/Cartographic"}
 # Error creation/handling
 thiserror = "1.0.29"
 anyhow = "1.0.43"
-allwhat = { path = "../../allwhat/" }
+allwhat = { path = "../../allwhat/", features = ["all"] }
 
 # Validation
 filtrate = { path = "../../Filtrate" }

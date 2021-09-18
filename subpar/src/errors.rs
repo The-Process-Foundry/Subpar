@@ -4,11 +4,11 @@
 pub mod prelude {
   pub use super::Kind;
   // Alias the error name to make explicit that it should always be the same type
-  pub use allwhat::exports::*;
+  pub use allwhat::prelude::*;
   pub use anyhow::{Error as AnyhowError, Result};
 }
 
-use allwhat::exports::ErrorGroup;
+use allwhat::prelude::ErrorGroup;
 // use anyhow::{anyhow, Error as AnyhowError};
 
 /// The full set of exceptions that can be raised at any step in this process
@@ -100,6 +100,7 @@ pub enum Kind {
 
 impl From<ErrorGroup> for Kind {
   fn from(group: ErrorGroup) -> Kind {
+    log::warn!("In convert error group to kind");
     Kind::ErrorList(group)
   }
 }

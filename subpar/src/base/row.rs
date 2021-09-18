@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 
-pub use schemars::schema::{RootSchema, Schema, SchemaObject, SubschemaValidation};
-pub use serde_json::Value as JsonValue;
+use schemars::schema::*;
+use serde_json::Value as JsonValue;
 
 /// A tag that allows us to link a struct with a row
 pub trait SubparRow:
@@ -40,12 +40,27 @@ pub trait SubparRow:
   }
 }
 
+/// Defines the column and validation (for quick lookup)
+#[derive(Clone, Debug)]
+struct Column {
+  name: String,
+  validation: Box<SchemaObject>,
+  required: bool,
+}
+
 /// Describe how a row is expected to look
 ///
 /// This is used the expectation of the contents of each cell. Internally, this is a JSON schema and
 /// can be built on the fly.
-#[derive(Debug)]
-pub struct RowTemplate(RootSchema);
+#[derive(Clone, Debug)]
+pub struct RowTemplate {
+  /// A pretty name for the template
+  name: String,
+  /// A lookup for each column's validation
+  columns: HashMap<String, Column>,
+  /// the full schema of the row
+  schema: Rc<RootSchema>,
+}
 
 impl std::fmt::Display for RowTemplate {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -54,25 +69,95 @@ impl std::fmt::Display for RowTemplate {
 }
 
 impl RowTemplate {
-  pub fn new(schema: Option<RootSchema>) -> RowTemplate {
-    RowTemplate(schema.unwrap_or(RootSchema {
-      meta_schema: None,
+  pub fn new(name: String, schema: Option<RootSchema>) -> RowTemplate {
+    let (columns, schema) = match schema {
+      Some(schema) => {
+        let mut headers = HashMap::new();
+        if let Some(validation) = &schema.schema.object {
+          for (key, value) in validation.properties.iter() {
+            if let Schema::Object(obj) = value {
+              headers.insert(
+                key.clone(),
+                Column {
+                  name: key.clone(),
+                  validation: Box::new(obj.clone()),
+                  required: false,
+                },
+              );
+            };
+          }
+          // And tag the required columns
+          for name in &validation.required {
+            if let Some(col) = headers.get_mut(name) {
+              (*col).required = true
+            }
+          }
+        };
+        (headers, schema)
+      }
+      None => (HashMap::new(), RowTemplate::blank_schema(name.clone())),
+    };
+
+    RowTemplate {
+      name,
+      columns,
+      schema: Rc::new(schema),
+    }
+  }
+
+  pub fn blank_schema(name: String) -> RootSchema {
+    RootSchema {
+      meta_schema: Some("http://json-schema.org/draft/2019-09/schema#".to_string()),
       schema: SchemaObject {
-        metadata: None,
-        instance_type: None,
-        format: None,
-        enum_values: None,
-        const_value: None,
-        subschemas: None,
-        number: None,
-        string: None,
-        array: None,
-        object: None,
-        reference: None,
-        extensions: schemars::Map::new(),
+        metadata: Some(Box::new(Metadata {
+          title: Some(name.clone()),
+          ..Metadata::default()
+        })),
+        instance_type: Some(SingleOrVec::Single(Box::new(InstanceType::Object))),
+        object: Some(Box::new(ObjectValidation::default())),
+        ..SchemaObject::default()
       },
-      definitions: schemars::Map::new(),
-    }))
+      ..RootSchema::default()
+    }
+  }
+
+  pub fn name(&self) -> String {
+    self.name.clone()
+  }
+
+  pub fn get_cell_schema(&self, name: &String) -> Result<&SchemaObject> {
+    let root = match &self.schema.schema.object {
+      Some(validation) => validation,
+      None => Err(anyhow!(
+        "Row Template {} does not have a useable schema",
+        self.name
+      ))?,
+    };
+
+    let schema = (*root).properties.get(name).ok_or(anyhow!(
+      "No column named '{}' in row template '{}'",
+      name,
+      self.name
+    ))?;
+
+    match schema {
+      Schema::Object(value) => Ok(value),
+      _ => Err(anyhow!(
+        "The column named '{}' in row template '{}' did not have a proper schema configured",
+        name,
+        self.name
+      )),
+    }
+  }
+
+  pub fn get_validation(&self) -> Result<&Box<ObjectValidation>> {
+    match &self.schema.schema.object {
+      Some(validation) => Ok(validation),
+      None => Err(anyhow!(
+        "Row Template {} does not have a useable schema",
+        self.name
+      ))?,
+    }
   }
 
   /// Attempt to convert the contents of a cell to its definition held at column name
@@ -80,39 +165,134 @@ impl RowTemplate {
   /// This both converts and runs any validation listed in the schema, accumulating any validation
   /// errors found
   pub fn to_row(&self, cells: HashMap<String, Cell>) -> Result<Row> {
-    // let params: (header, Cell, SchemaObject) =
-    // ;
-    // let row = AnnotatedResult::fold(
-    //   Row::new(),
-    //   params,
-    //   |acc, (cell: Cell, schema: SchemaObject)| {
-    //     match cell.to_value(schema) {
-    //       Ok(value) => acc.add_cell(value)
-    //     }
-    //   }
-    // )
+    let root = self.get_validation()?;
 
-    unimplemented!("'to_row' still needs to be implemented")
-    // Deserialize
+    // THINK: Is this best moved to schemars as a generic?
+    let row = BatchResult::fold(
+      Row::new(Some(self)),
+      root.properties.iter(),
+      |row: &mut Row, (name, obj)| {
+        let cell = match cells.get(name) {
+          Some(val) => val,
+          None => {
+            if root.required.contains(name) {
+              return Err(anyhow!(
+                "Row Template '{}' requires a column named '{}' but did not receive one"
+              ));
+            } else {
+              return Ok(());
+            }
+          }
+        };
 
-    // Ok(serde_json::to_value(value)?)
+        let schema = match &obj {
+          Schema::Object(val) => val,
+          _ => {
+            return Err(anyhow!(
+              "Cell {} Row Template {} does not have a useable schema",
+              name,
+              self.name
+            ))
+          }
+        };
+
+        let _ = match cell.to_value(schema) {
+          Ok(value) => row.add_cell(name, value),
+          Err(err) => Err(err).context(format!(
+            "Could not convert cell '{}' to a value for row '{}'",
+            name, self.name
+          )),
+        }?;
+
+        Ok(())
+      },
+    )
+    .context("Unable to convert cells to a row".to_string())
+    .as_result::<AnyhowError>()?;
+    Ok(row)
   }
 
   pub fn get_headers(&self) -> Result<Vec<String>> {
-    match self.0.definitions.len() {
-      0 => Err(Kind::BadValue).context("Headers were not set in the schema"),
-      _ => Ok(self.0.definitions.keys().map(|x| x.clone()).collect()),
+    match self.columns.len() {
+      0 => Err(Kind::BadValue).context("The table template does not have any headers set"),
+      _ => Ok(self.columns.keys().cloned().collect()),
     }
   }
 
   /// Check that all the headers are found in the schema
   pub fn validate_headers(&self, headers: &Vec<String>) -> Result<()> {
-    unimplemented!("'validate_headers' still needs to be implemented")
+    let root = self.get_validation()?;
+    let mut remaining = root.required.clone();
+
+    for header in headers {
+      if root.properties.contains_key(header) {
+        remaining.remove(header);
+      };
+    }
+    if remaining.len() > 0 {
+      Err(Kind::BadValue).context(format!(
+        "The following required headers were not found: {:?}",
+        remaining
+      ))?
+    }
+    Ok(())
   }
 
-  /// Add a new column definition. This should build a proper SchemaObject
-  pub fn add_column(&mut self, _name: String, position: Option<u16>) -> Result<RowTemplate> {
-    unimplemented!("'RowTemplate::add_column' still needs to be implemented")
+  /// Add a new column definition. This should build a proper SchemaObject".to_string()
+  ///
+  /// This uses try_mut to attempt to clean up after any failed
+  /// TODO: Move the schema maniplation this to schemars
+  pub fn add_column(
+    &mut self,
+    name: &String,
+    col_schema: Option<SchemaObject>,
+    required: bool,
+  ) -> Result<()> {
+    log::debug!("Adding column '{}' to '{}'", name, self.name);
+    log::trace!("With col_schema: {:#?}", col_schema);
+
+    let schema = col_schema.unwrap_or(SchemaObject {
+      instance_type: Some(SingleOrVec::Single(Box::new(InstanceType::String))),
+      ..SchemaObject::default()
+    });
+
+    let column = Column {
+      name: name.clone(),
+      validation: Box::new(schema.clone()),
+      required,
+    };
+
+    if let Some(_) = self.columns.insert(name.clone(), column) {
+      Err(Kind::DuplicateKey).context(format!(
+        "Duplicate headers named '{}' in table '{}'",
+        name, self.name
+      ))?
+    };
+
+    // We expect the root to be an object with the column headers as keys
+    let mut validation: Box<ObjectValidation> =
+      self.schema.schema.object.clone().unwrap_or_default();
+
+    validation
+      .properties
+      .insert(name.clone(), Schema::Object(schema.clone()));
+
+    if required {
+      validation.required.insert(name.clone());
+    }
+    /*
+    Ok(RowTemplate {
+      schema: RootSchema {
+        schema: SchemaObject {
+          object: Some(validation),
+          ..self.schema.schema
+        },
+        ..self.schema
+      },
+      ..self
+    })
+    */
+    unimplemented!("'Add Column' still needs to be implemented")
   }
 
   /// Let serde deceide what it should be, if there is no hint given
@@ -126,7 +306,11 @@ impl RowTemplate {
 
 impl From<RootSchema> for RowTemplate {
   fn from(schema: RootSchema) -> RowTemplate {
-    RowTemplate(schema)
+    let name = match &schema.schema.metadata {
+      Some(meta) => meta.title.clone().unwrap_or("Not Named".to_string()),
+      None => "Not Named".to_string(),
+    };
+    RowTemplate::new(name, Some(schema))
   }
 }
 
@@ -136,8 +320,9 @@ impl From<RootSchema> for RowTemplate {
 /// a single row into multiple pieces.
 #[derive(Debug)]
 pub struct Row {
-  // /// Pointer to the row's template
-  // template: Option<Rc<RefCell<RowTemplate>>>
+  /// Pointer to the row's template
+  schema: Rc<RootSchema>,
+
   /// The contents of the parsed structure
   cells: serde_json::Value,
 }
@@ -150,34 +335,40 @@ impl std::fmt::Display for Row {
 
 impl Row {
   /// Create a new instance
-  pub fn new() -> Row {
+  pub fn new(template: Option<&RowTemplate>) -> Row {
     Row {
-      cells: serde_json::to_value("{}").unwrap(),
+      schema: match template {
+        Some(tmp) => tmp.schema.clone(),
+        None => Rc::new(RowTemplate::blank_schema("No Name".to_string())),
+      },
+      cells: JsonValue::Null,
     }
   }
 
   /// Append a cell to the end of the row
-  pub fn add_cell(self, _cell: serde_json::Value, _name: String) -> Result<Self> {
-    // let mut root = self
-    //   .cells
-    //   .as_object_mut()
-    //   .ok_or({
-    //     Err(SubparError::Impossible).ctx(format!(
-    //       "A row root was not an object, it was {:#?}",
-    //       self.cells
-    //     ))
-    //   })
-    //   .map_err(|err| {
-    //     log::error!("{:#?}", err);
-    //     err
-    //   })?;
-    // if let Some(_) = root.insert(name.clone(), cell) {
-    //   Err(SubparError::DuplicateKey).ctx(format!(
-    //     "Attempted to add a cell named '{}' twice to a row",
-    //     name
-    //   ))?
-    // };
-    Ok(self)
+  pub fn add_cell(&mut self, name: &str, cell: serde_json::Value) -> Result<()> {
+    log::debug!("Root Obj: {:#?}", self.cells);
+    match self.cells.as_object_mut() {
+      Some(root) => {
+        log::debug!("Adding a {} cell to the row", name);
+        if let Some(old) = root.insert(name.to_string(), cell) {
+          log::debug!("Duplicate key: {:?}", name);
+          let _ = root.insert(name.to_string(), old);
+
+          Err(Kind::DuplicateKey)
+            .context(format!("Attempted to add a second column named '{}'", name,))?
+        };
+      }
+      None => {
+        log::debug!("No cells yet, creating one to hold {}", name);
+        let mut root = serde_json::map::Map::new();
+        root.insert(name.to_string(), cell);
+        self.cells = JsonValue::Object(root);
+      }
+    }
+    log::debug!("Root: {:?}", self.cells);
+
+    Ok(())
   }
 
   /// Retrieve a cell from the row
@@ -190,15 +381,15 @@ impl Row {
     Ok(cell.clone())
   }
 
-  /// Deserialize a row into a serde_json::Value
-  pub fn from_str(raw: &str, template: Option<RowTemplate>) -> Result<Row> {
-    match template {
-      None => Ok(Row {
-        cells: serde_json::to_value(raw)?,
-      }),
-      Some(_str) => {
-        unimplemented!("'from_str -> Has Template' still needs to be implemented")
-      }
-    }
-  }
+  // /// Deserialize a row into a serde_json::Value
+  // pub fn from_str(raw: &str, template: Option<RowTemplate>) -> Result<Row> {
+  //   match template {
+  //     None => Ok(Row {
+  //       cells: serde_json::to_value(raw)?,
+  //     }),
+  //     Some(_str) => {
+  //       unimplemented!("'from_str -> Has Template' still needs to be implemented")
+  //     }
+  //   }
+  // }
 }

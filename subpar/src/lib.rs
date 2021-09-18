@@ -25,7 +25,7 @@ pub mod json;
 pub mod csv;
 
 // Some generic code I use throughout
-// pub(crate) mod helpers;
+pub(crate) mod helpers;
 
 // Handle multiple csv files simultaneously
 // pub mod server;
@@ -38,6 +38,8 @@ pub mod csv;
 pub mod macros;
 
 mod local {
+  pub use anyhow::{anyhow, Error as AnyhowError};
+
   // Make all the types safe to use
   pub use std::borrow::{Borrow, BorrowMut};
   pub use std::cell::RefCell;
@@ -50,9 +52,10 @@ mod local {
   pub use serde::{Deserialize, Serialize};
 
   // Everything should be using a converting to a SubparError
+  pub(crate) use crate::helpers;
   pub use crate::prelude::*;
 
-  pub use allwhat::exports::{AnnotatedResult, ErrorGroup, SplitResult};
+  pub use allwhat::prelude::{BatchResult, ErrorGroup, Grouper, SplitResult};
 }
 
 /// All the basic items needed to use subpar derive

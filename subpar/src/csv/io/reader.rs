@@ -147,15 +147,20 @@ impl CsvReader {
         let headers = reader.headers()?.iter().map(|x| x.to_owned()).collect();
         match template {
           Some(schema) => {
-            schema.validate_headers(&headers)?;
+            schema.validate_headers(&headers).context(format!(
+              "Could not validate the headers for {}",
+              schema.name()
+            ))?;
             (schema, headers)
           }
           None => {
-            // AnnotatedResult::fold(RowTemplate::new(None), headers.iter(), |row, column| {
-            //   row.add_column(column.clone(), None)
-            // })
-            // .as_result::<Kind>()?,
-            unimplemented!("'Create Template' still needs to be implemented")
+            let schema = BatchResult::fold(
+              RowTemplate::new(canon.name(), None),
+              headers.iter(),
+              |acc: &mut RowTemplate, item| acc.add_column(item, None, false),
+            )
+            .as_result::<Kind>()?;
+            (Rc::new(schema), headers)
           }
         }
       }
@@ -195,6 +200,7 @@ impl CsvReader {
         Err(err) => Err(err),
       }
     })
+    .context(format!("Failed to slurp CSV file at '{}'", path))
     .as_result()
   }
 }
@@ -225,13 +231,11 @@ impl Iterator for CsvReader {
         .iter()
         .enumerate()
         .fold(HashMap::<String, Cell>::new(), |mut acc, (i, name)| {
-          acc.insert(
-            name.clone(),
-            Cell::new(
-              name.clone(),
-              CellValue::Raw(record.get(i).unwrap().to_string()),
-            ),
-          );
+          let val = match record.get(i).unwrap() {
+            "" => CellValue::Empty,
+            x => CellValue::Raw(x.to_string()),
+          };
+          acc.insert(name.clone(), Cell::new(name.clone(), val));
           acc
         });
 

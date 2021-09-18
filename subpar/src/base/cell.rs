@@ -3,11 +3,11 @@
 //! This is a wrapped value, designed to hold the data in intermediate form
 
 use crate::local::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use std::convert::TryFrom;
 
-use schemars::schema::SchemaObject;
+use schemars::schema::*;
 use serde_json::Number;
 use serde_json::Value as JsonValue;
 
@@ -29,6 +29,66 @@ pub enum CellValue {
   String(String),
 }
 
+impl CellValue {
+  /// Change the cell into the expected Json type
+  fn convert(&self, i_type: Option<&InstanceType>) -> Result<JsonValue> {
+    // pub enum InstanceType {
+    //   Null,
+    //   Boolean,
+    //   Object,
+    //   Array,
+    //   Number,
+    //   String,
+    //   Integer,
+
+    log::trace!("Trying to convert {:?}: {:?}", i_type, self);
+    match i_type {
+      Some(InstanceType::Null) => match self {
+        CellValue::Null | CellValue::Empty => Ok(JsonValue::Null),
+        _ => Err(anyhow!(
+          "Cannot reasonably convert a value into a null. Try again"
+        )),
+      },
+      Some(InstanceType::Number) => match self {
+        CellValue::String(val) | CellValue::Raw(val) => {
+          use core::str::FromStr;
+          Ok(JsonValue::Number(serde_json::Number::from_str(val)?))
+        }
+        CellValue::Number(num) => Ok(JsonValue::Number(num.clone())),
+        _ => Err(anyhow!(
+          "Cannot reasonably convert a value into a number. Try again"
+        )),
+      },
+      Some(InstanceType::Integer) => match self {
+        CellValue::String(val) | CellValue::Raw(val) => {
+          let conv: i64 = val.parse()?;
+          Ok(JsonValue::Number(serde_json::Number::from(conv)))
+        }
+        CellValue::Number(num) => Ok(JsonValue::Number(num.clone())),
+        _ => Err(anyhow!(
+          "Cannot reasonably convert a value into a number. Try again"
+        )),
+      },
+      Some(InstanceType::String) => match self {
+        CellValue::Null => Err(anyhow!("Strings are not allowed to be null. Try again")),
+        CellValue::Raw(val) | CellValue::String(val) => Ok(JsonValue::String(val.clone())),
+        CellValue::Number(num) => Ok(JsonValue::Number(num.clone())),
+        CellValue::Empty => Ok(JsonValue::Null),
+        _ => Err(anyhow!(
+          "Cannot reasonably convert a value into a null. Try again"
+        )),
+      },
+      // None just returns what serde_json guessed
+      None => match self {
+        CellValue::Raw(val) | CellValue::String(val) => Ok(JsonValue::String(val.clone())),
+        CellValue::Number(num) => Ok(JsonValue::Number(num.clone())),
+        CellValue::Null | CellValue::Empty => Ok(JsonValue::Null),
+      },
+      _ => unimplemented!("'Other conversions' still needs to be implemented"),
+    }
+  }
+}
+
 #[derive(Debug)]
 pub struct Cell {
   name: String,
@@ -40,9 +100,39 @@ impl Cell {
     Cell { name, value }
   }
 
-  // Parse the cell into serde_json value using the schema
-  pub fn to_value(self) -> Result<JsonValue> {
-    unimplemented!("'to_value' still needs to be implemented")
+  pub fn name(&self) -> String {
+    self.name.clone()
+  }
+
+  // Parse the cell into serde_json value using the schema, validating it as needed
+  pub fn to_value(&self, schema: &SchemaObject) -> Result<JsonValue> {
+    match &schema.instance_type {
+      Some(SingleOrVec::Vec(i_types)) => {
+        let mut result = Err(anyhow!(
+          "Could not find a valid type to convert the cell into: {:#?}",
+          self
+        ));
+        for i_type in i_types {
+          match self.value.convert(Some(i_type)) {
+            Ok(val) => {
+              result = Ok(val);
+              break;
+            }
+            Err(_) => (),
+          };
+        }
+        let msg = format!(
+          "Could not convert cell {:?} into any of {:?}",
+          self, i_types
+        );
+        if let Err(_) = result {
+          log::debug!("{}", msg);
+        };
+        result.context(msg)
+      }
+      Some(SingleOrVec::Single(i_type)) => self.value.convert(Some(i_type)),
+      None => self.value.convert(None),
+    }
   }
 
   // /// Parse from an unknown string into an intermediate form.
@@ -62,17 +152,18 @@ impl Cell {
 }
 
 // Begin the deserializer for the schema
-use serde::{de::DeserializeOwned, Deserialize};
+// use serde::{de::DeserializeOwned, Deserialize};
 
 impl TryFrom<Cell> for JsonValue {
   type Error = AnyhowError;
 
-  fn try_from(cell: Cell) -> Result<JsonValue> {
+  fn try_from(_cell: Cell) -> Result<JsonValue> {
     unimplemented!("'Cell.try_from' still needs to be implemented")
   }
 }
-struct ToValue<'de> {
-  input: &'de Cell,
+
+pub struct ToValue<'de> {
+  _input: &'de Cell,
 }
 
 // Bug with generics and TryFrom: https://github.com/rust-lang/rust/issues/50133
