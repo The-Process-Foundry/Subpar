@@ -26,9 +26,9 @@ chrono = { version = "0.4.19", features = ["serde"] }
 serde = { version = "1.0.130", features = ["derive"] }
 
 # JSON encoding/decoding
-serde_json = "1.0.67"
+serde_json = "1.0.72"
 serde-transcode = "1.1.1"
-schemars = { version = "0.8.3", features = ["derive", "chrono", "uuid", "impl_json_schema"] }
+schemars = { version = "0.8.8", features = ["derive", "chrono", "uuid", "impl_json_schema"] }
 
 # Unique identifiers
 uuid =  { version = "0.8.2", features = ["serde", "v4", "v5"] }
@@ -40,12 +40,12 @@ url = "2.2.2"
 csv = "1.1.6"
 
 # Google sheets accessor
-sheets_db = {path = "../../Gappi/sheets_db"}
-wrapi = {path="../../Wrapi"}
-yup-oauth2 = {path="../../yup-oauth2"}
+# sheets_db = {path = "../../Gappi/sheets_db"}
+# wrapi = {path="../../Wrapi"}
+# yup-oauth2 = {path="../../yup-oauth2"}
 
 # Excel parser
-calamine = "0.18.0"
+# calamine = "0.18.0"
 
 
 # Macro for simplifying converting rows to structs/enums
@@ -55,9 +55,10 @@ subpar_derive = { path = "../subpar_derive" }
 cartographic = { path = "/home/dfogelson/Foundry/Cartographic"}
 
 # Error creation/handling
-thiserror = "1.0.29"
-anyhow = "1.0.43"
-allwhat = { path = "../../allwhat/", features = ["all"] }
+thiserror = "1.0.30"
+# anyhow = "1.0.43"
+anyhow = "1.0.48"
+allwhat = { path = "../../allwhat/core", features = ["all"] }
 
 # Validation
 filtrate = { path = "../../Filtrate" }

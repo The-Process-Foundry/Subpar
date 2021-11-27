@@ -12,9 +12,18 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 
 // ----------------------------- Action Parameters  -----------------------------
+pub enum SubparActions {
+  SlurpFile(&str),
+}
 
 // ----------------------------- Event Parameters  -----------------------------
+pub enum SubparEvents {
+  OpenedFile(&str),
 
+  ReadRow(Rc<Row>),
+}
+
+// ----------------------------- The Server  -----------------------------
 #[derive(Debug)]
 pub struct SubparServer {
   config: (),
@@ -44,6 +53,5 @@ impl SubparServer {
 }
 
 /* Add the cartograpic information
-
 impl
 */

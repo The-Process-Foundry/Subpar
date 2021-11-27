@@ -74,9 +74,6 @@ impl CellValue {
         CellValue::Raw(val) | CellValue::String(val) => Ok(JsonValue::String(val.clone())),
         CellValue::Number(num) => Ok(JsonValue::Number(num.clone())),
         CellValue::Empty => Ok(JsonValue::Null),
-        _ => Err(anyhow!(
-          "Cannot reasonably convert a value into a null. Try again"
-        )),
       },
       // None just returns what serde_json guessed
       None => match self {
@@ -113,19 +110,16 @@ impl Cell {
           self
         ));
         for i_type in i_types {
-          match self.value.convert(Some(i_type)) {
-            Ok(val) => {
-              result = Ok(val);
-              break;
-            }
-            Err(_) => (),
+          if let Ok(val) = self.value.convert(Some(i_type)) {
+            result = Ok(val);
+            break;
           };
         }
         let msg = format!(
           "Could not convert cell {:?} into any of {:?}",
           self, i_types
         );
-        if let Err(_) = result {
+        if result.is_err() {
           log::debug!("{}", msg);
         };
         result.context(msg)

@@ -134,10 +134,9 @@ impl CsvReader {
 
     // Get the canonicalized path of the location
     let canon = &accessor.canonicalize(false)?;
-    let path = match canon {
-      Accessor::Csv(path) => Ok(path),
-      _ => Err(Kind::Impossible).context("Tried to build a CSV Reader with an invalid accessor"),
-    }?;
+    let Accessor::Csv(path) = canon;
+    // This type check will be needed later
+    // _ => Err(Kind::Impossible).context("Tried to build a CSV Reader with an invalid accessor"),
 
     let mut reader = builder.from_path(path.as_path())?;
 
