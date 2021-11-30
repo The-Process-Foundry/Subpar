@@ -3,7 +3,6 @@
 //! This is a wrapped value, designed to hold the data in intermediate form
 
 use crate::local::*;
-use anyhow::{Context, Result};
 
 use std::convert::TryFrom;
 
@@ -45,32 +44,42 @@ impl CellValue {
     match i_type {
       Some(InstanceType::Null) => match self {
         CellValue::Null | CellValue::Empty => Ok(JsonValue::Null),
-        _ => Err(anyhow!(
+        _ => Err(err!(
+          ConversionError,
           "Cannot reasonably convert a value into a null. Try again"
         )),
       },
       Some(InstanceType::Number) => match self {
         CellValue::String(val) | CellValue::Raw(val) => {
           use core::str::FromStr;
-          Ok(JsonValue::Number(serde_json::Number::from_str(val)?))
+          Ok(JsonValue::Number(err_into!(
+            serde_json::Number::from_str(val),
+            "Failed to convert {:?} into number",
+            val
+          )?))
         }
         CellValue::Number(num) => Ok(JsonValue::Number(num.clone())),
-        _ => Err(anyhow!(
+        _ => Err(err!(
+          ConversionError,
           "Cannot reasonably convert a value into a number. Try again"
         )),
       },
       Some(InstanceType::Integer) => match self {
         CellValue::String(val) | CellValue::Raw(val) => {
-          let conv: i64 = val.parse()?;
-          Ok(JsonValue::Number(serde_json::Number::from(conv)))
+          let int = err_into!(val.parse::<i64>())?;
+          Ok(JsonValue::Number(serde_json::Number::from(int)))
         }
         CellValue::Number(num) => Ok(JsonValue::Number(num.clone())),
-        _ => Err(anyhow!(
+        _ => Err(err!(
+          ConversionError,
           "Cannot reasonably convert a value into a number. Try again"
         )),
       },
       Some(InstanceType::String) => match self {
-        CellValue::Null => Err(anyhow!("Strings are not allowed to be null. Try again")),
+        CellValue::Null => Err(err!(
+          BadValue,
+          "Strings are not allowed to be null. Try again"
+        )),
         CellValue::Raw(val) | CellValue::String(val) => Ok(JsonValue::String(val.clone())),
         CellValue::Number(num) => Ok(JsonValue::Number(num.clone())),
         CellValue::Empty => Ok(JsonValue::Null),
@@ -105,7 +114,8 @@ impl Cell {
   pub fn to_value(&self, schema: &SchemaObject) -> Result<JsonValue> {
     match &schema.instance_type {
       Some(SingleOrVec::Vec(i_types)) => {
-        let mut result = Err(anyhow!(
+        let mut result = Err(err!(
+          NotFound,
           "Could not find a valid type to convert the cell into: {:#?}",
           self
         ));
@@ -149,7 +159,7 @@ impl Cell {
 // use serde::{de::DeserializeOwned, Deserialize};
 
 impl TryFrom<Cell> for JsonValue {
-  type Error = AnyhowError;
+  type Error = SubparError;
 
   fn try_from(_cell: Cell) -> Result<JsonValue> {
     unimplemented!("'Cell.try_from' still needs to be implemented")

@@ -4,7 +4,6 @@
 //! TODO: Convert this to use Reader::from_reader and create a std::io::Read value
 
 pub use crate::local::*;
-pub use anyhow::{Context, Result};
 
 pub use ::csv::{Error as CsvError, Reader, ReaderBuilder, StringRecord};
 pub use std::collections::HashMap;
@@ -138,12 +137,15 @@ impl CsvReader {
     // This type check will be needed later
     // _ => Err(Kind::Impossible).context("Tried to build a CSV Reader with an invalid accessor"),
 
-    let mut reader = builder.from_path(path.as_path())?;
+    let mut reader = err_into!(builder.from_path(path.as_path()))?;
 
     // Get or create a schema for the file
     let (template, headers) = match options.file_options.has_headers {
       true => {
-        let headers = reader.headers()?.iter().map(|x| x.to_owned()).collect();
+        let headers = err_into!(reader.headers())?
+          .iter()
+          .map(|x| x.to_owned())
+          .collect();
         match template {
           Some(schema) => {
             schema.validate_headers(&headers).context(format!(
@@ -158,7 +160,7 @@ impl CsvReader {
               headers.iter(),
               |acc: &mut RowTemplate, item| acc.add_column(item, None, false),
             )
-            .as_result::<Kind>()?;
+            .as_result::<SubparError>()?;
             (Rc::new(schema), headers)
           }
         }
@@ -168,9 +170,13 @@ impl CsvReader {
           let headers = schema.get_headers()?;
           (schema, headers)
         }
-        None => Err(Kind::NotImplemented).context(
-          "Cannot read CSV file '{}' because it doesn't have either headers or a template",
-        )?,
+        None => {
+          return Err(err!(
+            NotImplemented,
+            "Cannot read CSV file '{:?}' because it doesn't have either headers or a template",
+            path.to_str()
+          ))
+        }
       },
     };
 
@@ -184,7 +190,10 @@ impl CsvReader {
     })
   }
 
-  pub fn slurp<T: SubparRow>(path: &str, _opts: Option<Options>) -> Result<Vec<T>> {
+  pub fn slurp<T: SubparRow>(path: &str, _opts: Option<Options>) -> Result<Vec<T>>
+  where
+    T: TryFrom<Row, Error = SubparError>,
+  {
     let accessor = Accessor::new_csv(path);
     let reader = CsvReader::new(accessor, Some(Rc::new(T::get_template())), None)?;
 
@@ -212,15 +221,16 @@ impl Iterator for CsvReader {
     self.current_line += 1;
     // log::debug!("Trying to read data line {}", self.current_line);
     let record = match self.reader.next() {
+      Some(Ok(rec)) => rec,
       None => return None,
       Some(Err(err)) => {
-        return Some(Err(err).context(format!(
+        return Some(err_into!(
+          Err(err),
           "Error reading record {} from file {}",
           self.current_line,
           self.path.to_string_lossy()
-        )))
+        ));
       }
-      Some(Ok(rec)) => rec,
     };
 
     // Create a hashmap of cells to be processed

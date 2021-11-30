@@ -4,9 +4,8 @@
 //! up the business logic.
 
 use crate::local::*;
-use anyhow::Context;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Create a canonical PathBuf
 pub fn canonicalize(buf: PathBuf) -> Result<PathBuf> {
@@ -15,33 +14,37 @@ pub fn canonicalize(buf: PathBuf) -> Result<PathBuf> {
   let exists =
     path.is_file() || path.is_dir() || { path.parent().map(|x| x.is_dir()).unwrap_or(false) };
   if !exists {
-    Err(Kind::InvalidPath).context(format!(
+    return Err(err!(
+      InvalidPath,
       "path {} does not exist on the system and cannot be canonicalized",
       path.to_str().unwrap()
-    ))?
+    ));
   } else {
-    Ok(path.canonicalize().context(format!(
+    Ok(unwrap!(
+      path.canonicalize(),
       "Could not canonicalize path '{}'. Current directory is: {:?}",
       path.to_str().unwrap(),
       std::env::current_dir()
-    ))?)
+    ))
   }
 }
 
 /// Takes a path and returns the file stem to be used as a name
-pub fn to_sheet_name(path: &PathBuf) -> Result<&str> {
+pub fn to_sheet_name(path: &Path) -> Result<&str> {
   log::debug!("File Stem: {:?}", path.file_stem());
-  path
-    .file_stem()
-    .ok_or(Kind::InvalidLocation)
-    .context(format!(
+  let res: Result<&std::ffi::OsStr> = path.file_stem().ok_or_else(|| {
+    err!(
+      InvalidLocation,
       "csv::to_sheet_name file {:?} did not have a file stem",
       path
-    ))?
-    .to_str()
-    .clone()
-    .ok_or(Kind::ConversionError)
-    .context("'csv::Location::to_sheet_name' could not convert file name to ascii")
+    )
+  });
+  res?.to_str().ok_or_else(|| {
+    err!(
+      ConversionError,
+      "'csv::Location::to_sheet_name' could not convert file name to ascii"
+    )
+  })
 }
 
 /*

@@ -13,6 +13,7 @@ pub use subpar_derive::SubparTable;
 
 // The Subpar implementation of allwhat
 pub mod errors;
+pub use errors::{Kind as SubparKind, SubparError};
 
 // Items common to all Table Types
 pub mod base;
@@ -38,7 +39,6 @@ pub(crate) mod helpers;
 pub mod macros;
 
 mod local {
-  pub use anyhow::{anyhow, Error as AnyhowError};
 
   // Make all the types safe to use
   pub use std::borrow::{Borrow, BorrowMut};
@@ -53,7 +53,13 @@ mod local {
 
   // Everything should be using a converting to a SubparError
   pub(crate) use crate::helpers;
-  pub use crate::prelude::*;
+  pub use crate::{
+    errors::{Comment, Kind, Result},
+    prelude::*,
+  };
+
+  // Use the error macros
+  pub use crate::{err, err_into, unwrap};
 
   pub use allwhat::prelude::{BatchResult, ErrorGroup, Grouper, SplitResult};
 }
@@ -74,7 +80,7 @@ pub mod prelude {
       //   workbook::Workbook,
       row::{Row, RowTemplate, SubparRow},
     },
-    errors::{self, prelude::*},
+    errors::SubparError,
   };
 
   #[cfg(feature = "csv_tables")]

@@ -1,37 +1,36 @@
 [package]
-name = "subpar"
-version = "0.2.0"
 authors = ["Dave Fogelson <dfogelson@fishheadlabs.com>"]
-license = "MIT"
+description = "A set of traits and derives for working with tabular workbooks. It currently works read-only with excel and RW with google sheets and CSV. Currently being built for explicit use in the Process Foundry"
 edition = "2018"
 include = ["Cargo.toml", "src/*.rs", "crates-io.md", "README.md", "LICENSE-MIT"]
-description = "A set of traits and derives for working with tabular workbooks. It currently works read-only with excel and RW with google sheets and CSV. Currently being built for explicit use in the Process Foundry"
-
+license = "MIT"
+name = "subpar"
+version = "0.2.0"
 
 [features]
-default = ["derive", "csv_tables"]
 cartograph = []
-derive = []
 csv_tables = []
+default = ["derive", "csv_tables"]
+derive = []
 
 [dependencies]
 # Basic Logging
-log = "0.4.14"
 env_logger = "0.9.0"
+log = "0.4.14"
 
 # DateTime
-chrono = { version = "0.4.19", features = ["serde"] }
+chrono = {version = "0.4.19", features = ["serde"]}
 
 # Serialization Backend
-serde = { version = "1.0.130", features = ["derive"] }
+serde = {version = "1.0.130", features = ["derive"]}
 
 # JSON encoding/decoding
-serde_json = "1.0.72"
+schemars = {version = "0.8.8", features = ["derive", "chrono", "uuid", "impl_json_schema"]}
 serde-transcode = "1.1.1"
-schemars = { version = "0.8.8", features = ["derive", "chrono", "uuid", "impl_json_schema"] }
+serde_json = "1.0.72"
 
 # Unique identifiers
-uuid =  { version = "0.8.2", features = ["serde", "v4", "v5"] }
+uuid = {version = "0.8.2", features = ["serde", "v4", "v5"]}
 
 # Web locations
 url = "2.2.2"
@@ -47,18 +46,15 @@ csv = "1.1.6"
 # Excel parser
 # calamine = "0.18.0"
 
-
 # Macro for simplifying converting rows to structs/enums
-subpar_derive = { path = "../subpar_derive" }
+subpar_derive = {path = "../subpar_derive"}
 
 # Messaging platform
-cartographic = { path = "/home/dfogelson/Foundry/Cartographic"}
+cartographic = {path = "/home/dfogelson/Foundry/Cartographic"}
 
 # Error creation/handling
+allwhat = {path = "../../allwhat/core", features = ["all"]}
 thiserror = "1.0.30"
-# anyhow = "1.0.43"
-anyhow = "1.0.48"
-allwhat = { path = "../../allwhat/core", features = ["all"] }
 
 # Validation
-filtrate = { path = "../../Filtrate" }
+filtrate = {path = "../../Filtrate"}
