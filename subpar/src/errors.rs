@@ -11,7 +11,7 @@ pub struct SubparError {
   kind: Kind,
 
   /// An error message geared toward an end user
-  comment: Option<String>,
+  comment: Vec<String>,
 
   context: Option<String>,
 }
@@ -20,7 +20,7 @@ impl SubparError {
   pub fn new(kind: Kind) -> SubparError {
     SubparError {
       kind,
-      comment: None,
+      comment: Vec::new(),
       context: None,
     }
   }
@@ -30,7 +30,7 @@ impl SubparError {
   }
 
   pub fn comment(mut self, comment: String) -> SubparError {
-    self.comment = Some(comment);
+    self.comment.push(comment);
     self
   }
 
@@ -176,7 +176,7 @@ where
       Err(err) => {
         // Convert into a fhl error, if possible
         let mut err: SubparError = err.into();
-        err.comment = Some(comment.into());
+        err.comment.push(comment.into());
         Err(err)
       }
     }

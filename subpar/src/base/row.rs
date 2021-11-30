@@ -30,13 +30,13 @@ trait SchemaTools {
     T: serde::de::DeserializeOwned,
   {
     let schema = self.get_subschema(path)?;
-    Validator::validate(schema, value)?;
-    err_into!(
+    Ok(unwrap!(
       serde_json::from_value(value.clone()),
-      "Could not convert value '{}' at path '{}'",
+      "Could not convert value '{}' at path '{:#?}' into type {:#?}",
       value,
-      path
-    )
+      path,
+      std::any::type_name::<T>()
+    ))
   }
 }
 
@@ -69,9 +69,8 @@ impl SchemaTools for RootSchema {
   }
 }
 
-/// Attachment point for validation tools
+/// Attachment point for validation tools, made from a compiled schema
 pub struct Validator<'a> {
-  value: &'a JsonValue,
   schema: &'a SchemaObject,
   itype: SingleOrVec<InstanceType>,
 }
@@ -79,25 +78,28 @@ pub struct Validator<'a> {
 impl<'a> Validator<'a> {
   fn run(&mut self) -> Result<()> {
     let _log = format!(
-      "Running Validator:\n\tschema: {:?}\n\tvalue: {:?}\n\tIType: {:?}",
-      self.schema, self.value, self.itype
+      "Running Validator:\n\tschema: {:?}\n\tIType: {:?}",
+      self.schema, self.itype
     );
 
     Ok(())
   }
 
-  /// Checks the the value against the schema request, modifying it as necessary.
-  ///
-  /// This use case is for when not deserializing such as when receiving generic data.
-  pub fn validate(schema: &SchemaObject, value: &mut JsonValue) -> Result<()> {
-    let mut validator = Validator {
-      value,
+  pub fn new(schema: &SchemaObject) -> Validator {
+    Validator {
       schema,
       itype: schema
         .instance_type
         .clone()
         .unwrap_or_else(|| SingleOrVec::Single(Box::new(InstanceType::String))),
-    };
+    }
+  }
+
+  /// Checks the Json encoded value against the schema request, modifying it as necessary.
+  ///
+  /// This use case is for when not deserializing such as when receiving generic data.
+  pub fn validate(schema: &SchemaObject, value: &mut JsonValue) -> Result<()> {
+    let mut validator = Validator::new(schema);
 
     validator.run()
   }
@@ -230,7 +232,7 @@ impl RowTemplate {
     })?;
 
     match schema {
-      Schema::Object(value) => Ok(&value),
+      Schema::Object(value) => Ok(value),
       _ => Err(err!(
         NotFound,
         "The column named '{}' in row template '{}' did not have a proper schema configured",
