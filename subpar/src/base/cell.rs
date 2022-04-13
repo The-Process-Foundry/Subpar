@@ -10,6 +10,10 @@ use schemars::schema::*;
 use serde_json::Number;
 use serde_json::Value as JsonValue;
 
+/// Annotate cells, so we can also add custom deserialization
+/// TODO: Change Serialize/Deserialize into From/Into traits
+pub trait SubparCell: Serialize + serde::de::DeserializeOwned + Clone + Send + Sync {}
+
 /// A wrapper to enclose the raw data received from a reader
 ///
 /// Some forms of reader are given metadata to differentiate between types, so we want to use those
@@ -213,3 +217,26 @@ pub struct ToValue<'de> {
 //     }
 //   };
 // }
+
+// Subpar Cell implementations for the basics
+impl SubparCell for bool {}
+impl SubparCell for isize {}
+impl SubparCell for i8 {}
+impl SubparCell for i16 {}
+impl SubparCell for i32 {}
+impl SubparCell for i64 {}
+impl SubparCell for i128 {}
+impl SubparCell for usize {}
+impl SubparCell for u8 {}
+impl SubparCell for u16 {}
+impl SubparCell for u32 {}
+impl SubparCell for u64 {}
+impl SubparCell for u128 {}
+impl SubparCell for f32 {}
+impl SubparCell for f64 {}
+impl SubparCell for char {}
+
+impl SubparCell for String {}
+
+// impl<'de: 'a, 'a, T> SubparCell for &'a T where T: SubparCell {}
+impl<T> SubparCell for Vec<T> where T: SubparCell {}
